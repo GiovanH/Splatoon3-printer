@@ -1,3 +1,14 @@
+obj/*.d
+*.log
+*.bin
+*.lss 
+*.sym 
+*.eep 
+*.hex 
+*.map 
+*.elf
+*.stackdump
+
 # Object files
 *.o
 *.ko
