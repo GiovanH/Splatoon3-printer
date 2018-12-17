@@ -7,7 +7,34 @@ uint16_t out = 0;
 uint8_t* pseudo;
 uint8_t* pseudo2;
 
+
+void testconv(int16_t signd){
+	printf("\nS16int: %i \n", signd);
+	if (signd == 0) return 128;
+	float r = ((float)(signd + 32767) / 65534);
+	uint8_t uint8 = r * 255;
+
+	printf("\nRatio:  %f \n", r);
+	printf("uint8:  %u \n", uint8);
+}
+
 int main(){
+	testconv(-32767);
+	testconv(0);
+	testconv(32767);
+	for (;;){
+		int16_t signd = 0;
+		printf("S16int In: (-32768 - +32767): ");
+		scanf("%d", &signd);
+
+		// printf("Cast (0-65535): %i \n", (uint16_t)(signd-32768));
+		// printf("Cast (0-255):   %i \n", (uint8_t)((signd-32768)/128));
+
+		testconv(signd);
+	}
+}
+
+int main2(){
 	for (;;) {
 		top = 0;
 		bottom = 0;

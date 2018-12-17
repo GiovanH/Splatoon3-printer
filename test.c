@@ -11,16 +11,24 @@ int main(void) {
 		USB_JoystickReport_t JoystickInputData;
 		GetNextReport(&JoystickInputData);
 		//if (JoystickInputData.LX != 128) {
-			printf("%u Buttons: %u, Hat: %u, Sticks: (%u, %u), (%u, %u), Vendor: %u\n",
-				0, 
-				JoystickInputData.Button,
-				JoystickInputData.HAT,
+			// printf("%u Buttons: %u, Hat: %u, Sticks: (%u, %u), (%u, %u), Vendor: %u\n",
+			// 	0, 
+			// 	JoystickInputData.Button,
+			// 	JoystickInputData.HAT,
+			// 	JoystickInputData.LX,
+			// 	JoystickInputData.LY,
+			// 	JoystickInputData.RX,
+			// 	JoystickInputData.RY,
+			// 	JoystickInputData.VendorSpec
+			// );
+		if (JoystickInputData.LX != 128) {
+			printf("%u, %u, %u, %u\n",
 				JoystickInputData.LX,
 				JoystickInputData.LY,
 				JoystickInputData.RX,
-				JoystickInputData.RY,
-				JoystickInputData.VendorSpec
+				JoystickInputData.RY
 			);
+		}
 			v = JoystickInputData.VendorSpec;
 		//}
 	}

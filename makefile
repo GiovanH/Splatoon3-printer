@@ -33,6 +33,9 @@ nextreport.o: steps.o
 test: $(subst .c,.o,$(TESTSRC))
 	$(CXX) $(LDFLAGS) -o test.exe $(subst .c,.o,$(TESTSRC)) $(LDLIBS) 
 
+test2: test2.o
+	$(CXX) $(LDFLAGS) -o test2.exe test2.o
+
 %.o: %.c 
 	$(CXX) $(CFLAGS) $(CPPFLAGS) -c $<
 

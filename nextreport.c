@@ -17,10 +17,10 @@ static uint16_t* pseudoB;
 USB_JoystickReport_t BLANK_REPORT = {
 	0,  // 16 buttons; see JoystickButtons_t for bit mapping
 	8,  // HAT switch; one nibble w/ unused nibble
-	STICK_CENTER - 8,  // Left  Stick X
-	STICK_CENTER - 8,  // Left  Stick Y
-	STICK_CENTER - 8,  // Right Stick X
-	STICK_CENTER - 8,  // Right Stick Y
+	STICK_CENTER,  // Left  Stick X
+	STICK_CENTER,  // Left  Stick Y
+	STICK_CENTER,  // Right Stick X
+	STICK_CENTER,  // Right Stick Y
 	4,  // Vendor Specification
 };
 
@@ -35,12 +35,18 @@ typedef enum {
 State_t state = SYNC_CONTROLLER;
 
 uint16_t prestep[] = {
-    0, 32896, 32896, 8, 255, 
-    64, 32896, 32896, 8, 4, 
-    192, 32896, 32896, 8, 49, 
-    0, 32896, 32896, 8, 250, 
-    4, 32896, 32896, 8, 24, 
-    0, 32896, 32896, 8, 400, 
+    // 0, 32896, 32896, 8, 255, 
+    // 64, 32896, 32896, 8, 4, 
+    // 192, 32896, 32896, 8, 49, 
+    // 0, 32896, 32896, 8, 250, 
+    // 4, 32896, 32896, 8, 24, 
+    // 0, 32896, 32896, 8, 400, 
+    0, 32896, 32896, 8, 0, 
+    64, 32896, 32896, 8, 0, 
+    192, 32896, 32896, 8, 0, 
+    0, 32896, 32896, 8, 0, 
+    4, 32896, 32896, 8, 0, 
+    0, 32896, 32896, 8, 0, 
  0 };
 static const int numpresteps = 5;
 
@@ -53,7 +59,7 @@ static uint16_t* reportArray = prestep;
 static int arrayMax = 5;
 
 
-//#include <stdio.h> // Just for debugging.
+#include <stdio.h> // Just for debugging.
 
 // Prepare the next report for the host.
 void GetNextReport(USB_JoystickReport_t* const ReportData) {
@@ -66,13 +72,9 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 	uint16_t hData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+3];
 	uint16_t repData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+4];
 
-	// printf("%u %u, %u, %u, %u\n",
-	// 	stepIndex, bData, lData, rData, hData
+	// printf("[%u] 0x%x {%u, %u, %u, %u} | ",
+	// 	stepIndex, bData, lData, rData, hData, reportArray
 	// );
-	// printf("%x, %x, %x\n",
-	// 	&step, &prestep, reportArray
-	// );
-
 
 	// Prepare an empty report
 	// memset(ReportData, 0, sizeof(USB_JoystickReport_t));
