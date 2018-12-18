@@ -1,8 +1,13 @@
 #include "types.h"
 #include <string.h> // For memcpy
 
-#define ECHOES 1
+#define ECHOES 4 // 30 FPS
 #define STEP_BLOCK_SIZE 5
+
+//#define PRE SPLAT
+#define PRE 1
+//0: NONE
+//1: SPLAT
 
 static int echoes = 0;
 static int stepIndex = 0;
@@ -34,37 +39,30 @@ typedef enum {
 } State_t;
 State_t state = SYNC_CONTROLLER;
 
-uint16_t prestep[] = {
-    // 0, 32896, 32896, 8, 255, 
-    // 64, 32896, 32896, 8, 4, 
-    // 192, 32896, 32896, 8, 49, 
-    // 0, 32896, 32896, 8, 250, 
-    // 4, 32896, 32896, 8, 24, 
-    // 0, 32896, 32896, 8, 400, 
-    0, 32896, 32896, 8, 0, 
-    64, 32896, 32896, 8, 0, 
-    192, 32896, 32896, 8, 0, 
-    0, 32896, 32896, 8, 0, 
-    4, 32896, 32896, 8, 0, 
-    0, 32896, 32896, 8, 0, 
- 0 };
-static const int numpresteps = 5;
-
-
 //I know, it's icky.
 #include "steps.c"
 
-static uint16_t* reportArray = prestep;
-//static int arrayMax = numpresteps;
-static int arrayMax = 5;
+uint16_t prestep[] = {
+    0, 32896, 32896, 8, 255,  //Wait
+    64, 32896, 32896, 8, 7, 
+    192, 32896, 32896, 8, 24, //Triggers
+    0, 32896, 32896, 8, 63, 
+    4, 32896, 32896, 8, 15,  //Continue
+    0, 32896, 32896, 8, 63, 
+ 0 };
 
+#if PRE==1
+	static uint16_t* reportArray = prestep;
+	static int arrayMax = 6;
+#else
+	static uint16_t* reportArray = prestep;
+	static int arrayMax = 0;
+#endif
 
-#include <stdio.h> // Just for debugging.
+//#include <stdio.h> // Just for debugging.
 
 // Prepare the next report for the host.
 void GetNextReport(USB_JoystickReport_t* const ReportData) {
-
-	uint16_t repeats = 0;
 
 	uint16_t bData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+0];
 	uint16_t lData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+1];
@@ -73,18 +71,10 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 	uint16_t repData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+4];
 
 	// printf("[%u] 0x%x {%u, %u, %u, %u} | ",
-	// 	stepIndex, bData, lData, rData, hData, reportArray
+	// 	stepIndex, reportArray, bData, lData, rData, hData 
 	// );
 
 	// Prepare an empty report
-	// memset(ReportData, 0, sizeof(USB_JoystickReport_t));
-	// //Defaults
-
-	// ReportData->LX = STICK_CENTER;
-	// ReportData->LY = STICK_CENTER;
-	// ReportData->RX = STICK_CENTER;
-	// ReportData->RY = STICK_CENTER;
-	// ReportData->HAT = HAT_CENTER;
 	memcpy(ReportData, &BLANK_REPORT, sizeof(USB_JoystickReport_t));
 
 	// Repeat ECHOES times the last report
@@ -93,6 +83,19 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 		memcpy(ReportData, &last_report, sizeof(USB_JoystickReport_t));
 		echoes--;
 		return;
+	} else {
+		stepIndex += 1;
+	}
+
+	// Wraparound
+	if (stepIndex >= arrayMax)
+	{
+		if (reportArray == prestep) {
+			reportArray = step;
+			arrayMax = numsteps;
+		}
+		stepIndex = 0;
+		//state = SYNC_POSITION;
 	}
 
 	// States and moves management
@@ -129,15 +132,15 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 
 			ReportData->Button = *pseudoB;
 			ReportData->LX = pseudoL[0];
-			ReportData->LY = pseudoL[1];
+			ReportData->LY = 255-pseudoL[1];
 			ReportData->RX = pseudoR[0];
-			ReportData->RY = pseudoR[1];
+			ReportData->RY = 255-pseudoR[1];
 
 			ReportData->HAT = pseudoH[0];
 			ReportData->VendorSpec = pseudoH[1];
 
-			repeats = repData;
-			stepIndex += 1;
+			// Echo this report
+			echoes = ECHOES*repData;
 
 			break;
 
@@ -149,19 +152,7 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 		case DONE:
 			return;
 	}
-
-
-	if (stepIndex > arrayMax)
-	{
-		if (reportArray == prestep) {
-			reportArray = step;
-			arrayMax = numsteps;
-		}
-		stepIndex = 0;
-		//state = SYNC_POSITION;
-	}
-	// Prepare to echo this report, copy the ReportData to last_report
+	// Copy the ReportData to last_report
 	memcpy(&last_report, ReportData, sizeof(USB_JoystickReport_t));
-	echoes = ECHOES*repeats;
 
 }
