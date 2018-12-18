@@ -56,4 +56,4 @@ with-alert: CC_FLAGS += -DALERT_WHEN_DONE
 
 
 clean:  
-	rm -v $(subst .c,.o,$(TESTSRC)) $(subst .c,.o,$(MYSRC)) $(TARGET).bin $(TARGET).lss $(TARGET).sym $(TARGET).eep $(TARGET).hex $(TARGET).map $(TARGET).elf
+	rm -v test.exe test2.exe test.exe.stackdump test2.exe.stackdump steps.o $(subst .c,.o,$(TESTSRC)) $(subst .c,.o,$(MYSRC)) $(TARGET).bin $(TARGET).lss $(TARGET).sym $(TARGET).eep $(TARGET).hex $(TARGET).map $(TARGET).elf
