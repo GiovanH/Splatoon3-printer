@@ -8,14 +8,25 @@ uint8_t* pseudo;
 uint8_t* pseudo2;
 
 
-void testconv(int16_t signd){
-	printf("\nS16int: %i \n", signd);
+uint8_t joyScale(int16_t signd) {
+	//if (signd < -32760) return 0;
+	//if (signd > 32760) return 255;
 	if (signd == 0) return 128;
 	float r = ((float)(signd + 32767) / 65534);
 	uint8_t uint8 = r * 255;
+	return uint8;
+}
 
-	printf("\nRatio:  %f \n", r);
-	printf("uint8:  %u \n", uint8);
+void testconv(int16_t signd){
+	printf("\nS16int: %i \n", signd);
+	uint8_t n = joyScale(signd);
+	printf("uint8:  %u \n", n);
+	return;
+	// float r = ((float)(signd + 32767) / 65534);
+	// uint8_t uint8 = r * 255;
+
+	// printf("\nRatio:  %f \n", r);
+	// printf("uint8:  %u \n", joyScale(signd));
 }
 
 int main(){
@@ -56,6 +67,7 @@ int main2(){
 		pseudo[1] = bottom;
 
 		printf("Combo: %x\n", combo);
+		printf("Combo: %u\n", combo);
 
 		combo2 = combo;
 
