@@ -2,7 +2,9 @@
 #include <string.h> // For memcpy
 
 #define ECHOES 12 // 30 FPS
-#define STEP_BLOCK_SIZE 3
+#define BLANK_ECHOES 12 // 30 FPS
+#define STEP_BLOCK_SIZE 3 // ints per step
+#define DO_BLANK 1
 
 //#define PRE SPLAT
 #define PRE 1
@@ -50,9 +52,9 @@ State_t state = SYNC_CONTROLLER;
 #include "steps.c"
 
 uint8_t prestep[] = {
-    0, 8, 1,  //Wait
+    0, 8, 4,  //Wait
     20, 8, 1, //Triggers
-    30, 8, 2, //Triggers
+    30, 8, 4, //Triggers
     0, 8, 4, 
     // 4, 8, 4,  //Continue
     // 0, 8, 4, 
@@ -96,7 +98,9 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 			memcpy(ReportData, &last_report, sizeof(USB_JoystickReport_t));
 			// ReportData->VendorSpec = 1;
 			sys_echoes_remaining = ECHOES;
-			need_blank = ECHOES;  // Blank for 1 button after this
+			#if DO_BLANK
+			need_blank = BLANK_ECHOES;  // Blank for 1 button after this
+			#endif
 			return;
 		} else {
 			memcpy(ReportData, &BLANK_REPORT, sizeof(USB_JoystickReport_t));
@@ -116,6 +120,7 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 					// Overflow without wraparound
 					// Return blank report
 					ReportData->Button = SWITCH_CAPTURE;
+					ReportData->VendorSpec = 88;
 					// Avoid overflow
 					stepIndex = arrayMax + 1;
 					return;
@@ -123,12 +128,16 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 			}
 
 			// Send next report
-			uint8_t bData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+0];
-			uint8_t hData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+1];
-			uint8_t repData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+2];
+			uint8_t offset = (STEP_BLOCK_SIZE*stepIndex);
+			uint8_t bData = reportArray[offset+0];
+			uint8_t hData = reportArray[offset+1];
+			uint8_t repData = reportArray[offset+2];
 
 			ReportData->Button = bData;
 			ReportData->HAT = hData;
+			if (bData == 0xFF) {
+				ReportData->Button = 0x400;
+			}
 			// ReportData->VendorSpec = 2;
 
 			// Copy the ReportData to last_report
@@ -139,7 +148,9 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 
 			// ReportData->VendorSpec = 5;
 
-			need_blank = ECHOES; // Blank for 1 button after this
+			#if DO_BLANK
+			need_blank = BLANK_ECHOES;  // Blank for 1 button after this
+			#endif
 		} 
 		
 		

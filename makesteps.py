@@ -37,7 +37,8 @@ class Step(enum.Enum):
     ZR = (0x80, 0x08)
     # MINUS = (0x100, 0x08)
     # PLUS = (0x200, 0x08)
-    # LCLICK = (0x400, 0x08)
+    LCLICK = (0x400, 0x08)
+    LCLICK_OVERRIDE = (0xFF, 0x08)
     # RCLICK = (0x800, 0x08)
     # HOME = (0x1000, 0x08)
     # CAPTURE = (0x2000, 0x08)
@@ -147,100 +148,38 @@ def saveSteps(steps):
         fp.write(f"static int numsteps = {numsteps};\n")
 
 
-# Zero index
-HUES = 30 - 1
-SATS = 15 - 1
-VALS = 15 - 1
-
-
-
-DEFAULT_PALETTE = [
-    (0, 12, 14),  # Red
-    (2, 12, 14),  # Orange
-    (5, 13, 14),  # Yellow
-    (8, 12, 14),  # Lime
-    (10, 12, 8),  # Green
-    (16, 11, 13),  # Teal  # Double check this
-    (17, 12, 13),  # Cerulean
-    (20, 11, 14),  # Blue
-    (22, 10, 14),  # Purple
-    (26, 9, 14),  # Pink  # Double check
-    (1, 5, 14),  # Beige
-    (1, 8, 8),  # Brown
-    (0, 0, 14),  # White
-    (0, 0, 6),  # Grey
-    (0, 0, 0)  # Black
-]
-
-
-def percToInt(max):
-    def c(val):
-        return round(val * max)
-    return c
-
-
-def rgbaToACColor(pixel):
-    if pixel[3] == 0:
-        # Transparent, bad
-        # raise NotImplementedError
-        return (-1, -1, -1)
-    r, g, b, *_ = pixel
-    h, s, v = colorsys.rgb_to_hsv(r, g, b)
-    v /= 255
-    tup = (percToInt(HUES)(h), percToInt(SATS)(s), percToInt(VALS)(v))
-    return tup
-
-
-def acColorToRgba(color):
-    if color == (-1, -1, -1):
-        # raise NotImplementedError
-        return (255, 0, 255, 0)
-    # print(color)
-    h_, s_, v_ = color
-    rgbf = colorsys.hsv_to_rgb(
-        (h_ / HUES),
-        (s_ / SATS),
-        (v_ / VALS)
-    )
-    rgb = list(map(percToInt(255), rgbf))
-    # print(rgb)
-    return (*rgb, 255)
-
-
-class ACCanvas():
+class Splat3Canvas():
     def __init__(self, width, height):
-        super(ACCanvas, self).__init__()
+        super().__init__()
         self.w = width
         self.h = height
-        self.canvas = [[None for x in range(width)] for y in range(height)]
+        self.canvas = [[None for y in range(height)] for x in range(width)]
         self.palette = None
         self.steps = []
 
-    def fromPattern(self, infile_image):
+    def clear(self):
+        self.canvas = [[False for y in range(self.h)] for x in range(self.w)]
+
+    @classmethod
+    def fromPattern(cls, infile_image):
+        (width, height) = infile_image.size
+        ret = cls(width, height)
         in_pixels = infile_image.load()
-        for x in range(w):
-            for y in range(h):
-                self.canvas[x][y] = rgbaToACColor(in_pixels[x, y])
-        return self
+        for x in range(width):
+            for y in range(height):
+                ret.canvas[x][y] = (True if in_pixels[x, y] == 0 else False)
+        return ret
 
-    def fromSentinal(self):
-        self.canvas = [[(-2, -2, -2) for x in range(self.w)] for y in range(self.h)]
-        return self
-
-    def toPalImg(self):
-        assert self.palette
-        image_canvas = Image.new("RGBA", (len(self.palette), 1), color=(0, 0, 0, 0,))
-        pixels = image_canvas.load()
-        for i, pix in enumerate(self.palette):
-            pixels[i, 0] = acColorToRgba(pix)
-        return image_canvas
+    # def fromSentinal(self):
+    #     self.canvas = [[None for x in range(self.w)] for y in range(self.h)]
+    #     return self
 
     def toImage(self):
-        image_canvas = Image.new("RGBA", (self.w, self.h), color=(0, 0, 0, 0,))
+        image_canvas = Image.new("RGB", (self.w, self.h))
         pixels = image_canvas.load()
         for x in range(self.w):
             for y in range(self.h):
-                pixels[x, y] = acColorToRgba(self.canvas[x][y])
+                pixels[x, y] = (0,0,0) if self.canvas[x][y] else (255,255,255)
         return image_canvas
 
     def getAllNeighborPairs(self):
@@ -250,112 +189,46 @@ class ACCanvas():
                 yield ((x, y), (x + 1, y))
                 yield ((x, y), (x, y + 1))
 
-    def sortColorsByAdjacency(self, colorset):
-        if len(colorset) < 2:
-            return colorset
+    def rel_stamp_footprint(self, stamp, tx, ty):
+        return [
+            (x + tx, y + ty)
+            for (x, y) in stamp.value[1].value
+            if (x + tx) in range(self.w) and (y + ty) in range(self.h)
+        ]
 
-        # raise NotImplementedError
+import itertools
 
-        colorset = list(colorset)
-        color_pair_count = {}
-        for (x1, y1), (x2, y2) in self.getAllNeighborPairs():
-            if self.canvas[x1][y1] != self.canvas[x2][y2]:
-                color_pair = tuple(sorted([self.canvas[x1][y1], self.canvas[x2][y2]]))
-                color_pair_count[color_pair] = color_pair_count.get(color_pair, 0) + 1
-        # Todo: Implement this properly
-        color_pair_list = sorted(((color_pair_count.get(p), p) for p in color_pair_count.keys()))[::-1]
-        
-        freq, (color1, color2) = color_pair_list[0]
-        # print(freq, colorset.index(color1), colorset.index(color2))
-        new_colorset = [color1, color2]
-        
-        for freq, (color1, color2) in color_pair_list[1:]:
-            # print(freq, colorset.index(color1), colorset.index(color2))
-            for (c1, c2) in [(color1, color2), (color2, color1)]:
-                if new_colorset[0] == c1:
-                    if c2 not in new_colorset:
-                        new_colorset = [c2] + new_colorset
-                if new_colorset[-1] == c1:
-                    if c2 not in new_colorset:
-                        new_colorset.append(c2)
-            for c in (color1, color2):
-                if c not in new_colorset:
-                    new_colorset.append(c)
-            # print([colorset.index(c) for c in new_colorset])
-            if len(colorset) == len(new_colorset):
-                break
-        for c in colorset:
-            if c not in new_colorset:
-                new_colorset.append(c)
+class Footprints(enum.Enum):
+    # Pixels, releative to the center, that this affects.
+    SMALL = [(0, 0)]
+    MED = list(set([ # a square
+        (x, y)
+        for x in range(-2, 3)
+        for y in range(-2, 3)
+    ]) - set([ # with no corners
+        (x, y)
+        for x in [-2, 2]
+        for y in [-2, 2]
+    ]))
+    LARGE = list(set([ # a square
+        (x, y)
+        for x in range(-3, 4)
+        for y in range(-3, 4)
+    ]) | set([ # with extra bits
+        (x, y)
+        for x in range(-1, 2)
+        for y in [-4, 4]
+    ]) | set([ # with extra bits
+        (x, y)
+        for x in [-4, 4]
+        for y in range(-1, 2)
+    ]))
 
-        return new_colorset
-
-    def genPalette(self, sortColorset=sorted):
-        # if self.palette:
-        #     return
-        colorset = set()
-        for row in self.canvas:
-            for pixel in row:
-                if pixel != (-1, -1, -1):
-                    colorset.add(pixel)
-        assert len(colorset) <= 15
-        self.palette = sortColorset(colorset)
-        for j, color in enumerate(self.palette):
-            default = DEFAULT_PALETTE[j]
-
-            # if color[1] == 0:
-            #     self.palette[j] = (default[0], color[1], default[2])
-            # If vividness is 0, hue doesn't matter
-            if color[1] == 0:
-                repl = (default[0], color[1], color[2])
-                if repl != color:
-                    # print(f"Replacing {color} with {repl}")
-                    self.palette[j] = repl
-                    for x in range(self.w):
-                        for y in range(self.h):
-                            if self.canvas[x][y] == color:
-                                self.canvas[x][y] = repl
-            # If brightness is 0, hue and vividness do not matter
-            if color[2] == 0:
-                repl = (default[0], default[1], color[2])
-                if repl != color:
-                    # print(f"Replacing {color} with {repl}")
-                    self.palette[j] = repl
-                    for x in range(self.w):
-                        for y in range(self.h):
-                            if self.canvas[x][y] == color:
-                                self.canvas[x][y] = repl
-        # print(f"Generated {len(colorset)} color image")
-        # print(self.palette)
-
-    # while y < source.h:
-    #     while x < source.w:
-    #         yield (x, y)
-    #         x += 1
-    #     y += 1
-    #     x -= 1
-    #     while x > 0:
-    #         yield (x, y)
-    #         x -= 1
-    #     y += 1
-
-
-class Tool(enum.Enum):
-    PAL = (0, 0)
-    PEN = (0, 1)
-    BOX = (0, 2)
-    FILL = (0, 3)
-    STAMP_STAR = (0, 4)
-    FILL_ALL = (0, 5)
-    SWAP_PREVIEW = (0, 6)
-    EDIT_COLOR = (1, 0)
-    LINE = (1, 1)
-    CIRCLE = (1, 2)
-    STAMP_CIRCLE = (1, 3)
-    STAMP_HEART = (1, 4)
-    SHIFT = (1, 5)
-    MIRROR = (1, 6)
-
+class Size(enum.Enum):
+    # Index, Radius
+    SMALL = (0, Footprints.SMALL)
+    MED = (1, Footprints.MED)
+    LARGE = (2, Footprints.LARGE)
 
 class Printer(object):
 
@@ -365,58 +238,24 @@ class Printer(object):
         self.steps = []
 
         self.source = source
-        self.pal_index = 0
-        self.drawing = True
 
-        self.x = 16
-        self.y = 16
+        self.x = int(source.w/2)
+        self.y = int(source.h/2)
+        self.center = (self.x, self.y)
 
-        self.tool_x = 0
-        self.tool_y = 1
-        self.pen_size = 1
+        self.size = Size.MED
 
-        self.round_stamp_size = 2
-        self.star_stamp_size = 2
-        self.heart_stamp_size = 2
-
-        self.mirror = False
-        self.settings = {
-            "startfill": True,
-            "usemirror": True,
-            "vertical": True,
-            "horizontal": False,
-            "adjpalette": False,
-            # "neighborcolor": True,
-        }
+        self.settings = self.defaultSettings()
         self.settings.update(settings)
 
-        self.sim = ACCanvas(self.source.w, self.source.h).fromSentinal()
+        self.sim = Splat3Canvas(self.source.w, self.source.h) # .fromSentinal()
 
-    def setMirrored(self, target):
-        new_steps = []
-        if target is True and self.mirror is False:
-            # Select tool
-            new_steps.append(PseudoStep(Step.ZR, "SetMirrorT"))
-            self.mirror = True
-        if target is False and self.mirror is True:
-            # Open menu
-            new_steps.append(PseudoStep(Step.ZR, "SetMirrorF"))
-            self.mirror = False
-
-        return new_steps
-
-    def setDrawing(self, target):
-        new_steps = []
-        if target is True and self.drawing is False:
-            # Select tool
-            new_steps.append(PseudoStep(Step.A, "SetDrawingT"))
-            self.drawing = True
-        if target is False and self.drawing is True:
-            # Open menu
-            new_steps.append(PseudoStep(Step.X, "SetDrawingF"))
-            self.drawing = False
-
-        return new_steps
+    @classmethod
+    def defaultSettings(cls):
+        return {
+            "horizontal": True,
+            "vertical": False
+        }
 
     def moveTo(self, actual, desired, plus, minus):
         new_steps = []
@@ -427,38 +266,6 @@ class Printer(object):
 
         return new_steps
 
-    def setColorIndex(self, index, commit=True):
-        new_steps = []
-
-        if self.pal_index == index:
-            return new_steps
-
-        # if self.settings.get("neighborcolor") and abs(self.pal_index - index) > 4:
-        #     # new_steps_start = len(new_steps)
-        #     original_x, original_y = self.x, self.y
-        #     # print(self.x, self.y, list(self.getNeighbors(self.x, self.y)))
-        #     for nx, ny in self.getNeighbors(self.x, self.y):
-        #         if self.sim.canvas[nx][ny] == self.source.palette[index]:
-        #             new_steps += self.moveCursorTo(nx, ny)
-        #             new_steps.append(PseudoStep(Step.LR, f"ColorPick{index} from {nx},{ny} for {original_x},{original_y}"))
-
-        #             self.pal_index = index
-
-        #             break
-        #     new_steps += self.moveCursorTo(original_x, original_y)
-        #     # print("nc", len(new_steps) - new_steps_start)
-
-        # new_steps_start = len(new_steps)
-
-        new_steps += self.moveTo(
-            self.pal_index, index, 
-            PseudoStep(Step.R, f"ColorR{index}"), PseudoStep(Step.L, f"ColorL{index}"))
-
-        # print("c", len(new_steps) - new_steps_start)
-
-        self.pal_index = index
-
-        return new_steps
 
     def getNeighbors(self, tx, ty):
         for ox in [0, -1, 1]:
@@ -470,38 +277,23 @@ class Printer(object):
                         if (self.x, self.y) != (x, y):
                             yield (x, y)
 
-    def setColor(self, color):
-        new_steps = []
+    # def setTool(self, tool):
+    #     new_steps = []
+    #     target_x, target_y = tool.value
 
-        try:
-            new_steps += self.setColorIndex(self.source.palette.index(color))
-        except ValueError:
-            if color == (-1, -1, -1):
-                new_steps += self.setColorIndex(-1)
-            else:
-                print(f"Color '{color}' not in list:")
-                print(self.source.palette)
-                raise
+    #     if (target_x, target_y) != (self.tool_x, self.tool_y):
+    #         new_steps += self.setDrawing(False)
 
-        return new_steps
+    #         new_steps += self.moveTo(self.tool_x, target_x, Step.HAT_RIGHT, Step.HAT_LEFT)
+    #         self.tool_x = target_x
+    #         new_steps += self.moveTo(self.tool_y, target_y, Step.HAT_DOWN, Step.HAT_UP)
+    #         self.tool_y = target_y
 
-    def setTool(self, tool):
-        new_steps = []
-        target_x, target_y = tool.value
+    #         new_steps.append(PseudoStep(Step.A, "SetTool"))
+    #         self.drawing = True
+    #         # new_steps += self.setDrawing(True)
 
-        if (target_x, target_y) != (self.tool_x, self.tool_y):
-            new_steps += self.setDrawing(False)
-
-            new_steps += self.moveTo(self.tool_x, target_x, Step.HAT_RIGHT, Step.HAT_LEFT)
-            self.tool_x = target_x
-            new_steps += self.moveTo(self.tool_y, target_y, Step.HAT_DOWN, Step.HAT_UP)
-            self.tool_y = target_y
-
-            new_steps.append(PseudoStep(Step.A, "SetTool"))
-            self.drawing = True
-            # new_steps += self.setDrawing(True)
-
-        return new_steps
+    #     return new_steps
 
     def moveCursorTo(self, target_x, target_y):
         new_steps_x = []
@@ -543,7 +335,7 @@ class Printer(object):
 
         return new_steps_compressed
 
-    def smartTraverse(self, source):
+    def smartTraverse(self, source, min_increment=(1,1)):
         if self.settings.get("horizontal") and self.settings.get("vertical"):
             # Diagonal traverse
             # x = 0
@@ -557,179 +349,98 @@ class Printer(object):
             #         yield (x, y)
             raise NotImplementedError
 
-        elif self.settings.get("horizontal") or self.settings.get("vertical"):
+        elif self.settings.get("horizontal") and not self.settings.get("vertical"):
             x = 0
             y = 0
+            # Left to right
+            while x < source.w:
+                # Top to bottom
+                while y < source.h:
+                    yield (x, y)
+                    y += min_increment[1]
+                x += min_increment[0]
+                y -= min_increment[1]
+                while y > 0:
+                    yield (x, y)
+                    y -= min_increment[1]
+                yield (x, y)
+                x += min_increment[0]
+        elif self.settings.get("vertical") and not self.settings.get("horizontal"):
+            x = 0
+            y = 0
+            # Top to bottom
             while y < source.h:
+                # Left to right
                 while x < source.w:
-                    yield (x, y) if self.settings.get("horizontal") else (y, x)
-                    x += 1
-                y += 1
-                x -= 1
+                    yield (x, y)
+                    x += min_increment[0]
+                y += min_increment[1]
+                x -= min_increment[0]
                 while x > 0:
-                    yield (x, y) if self.settings.get("horizontal") else (y, x)
-                    x -= 1
-                yield (x, y) if self.settings.get("horizontal") else (y, x)    
-                y += 1
+                    yield (x, y)
+                    x -= min_increment[0]
+                yield (x, y)
+                y += min_increment[1]
         else:
-            raise NotImplementedError
+            raise NotImplementedError(f"{self.settings.get('horizontal')=}, {self.settings.get('vertical')=}")
 
-    def markPixel(self, target_x, target_y, target_color):
+    def setSize(self, new_size):
+        new_steps = []
+        target_sizex, tool_size = new_size.value
+        current_sizex = self.size.value[0]
+
+        if target_sizex != current_sizex:
+            new_steps += self.moveTo(current_sizex, target_sizex, Step.R, Step.L)
+
+        self.size = new_size
+        return new_steps
+
+    def markStamp(self, target_x, target_y, target_color, stamp=Size.SMALL):
 
         new_steps = []
+        # print(stamp_footprint)
 
-        if self.sim.canvas[target_x][target_y] == target_color:
+        # print(rel_stamp_footprint)
+
+        if all(
+            self.sim.canvas[x][y] == target_color
+            for (x, y) in self.sim.rel_stamp_footprint(stamp, target_x, target_y)
+        ):
+            # print(f"OK {target_x} {target_y} {target_color}")
             return new_steps
 
-        if self.settings.get("usemirror") and self.source.canvas[self.source.w - target_x - 1][target_y] == target_color:
-            should_mirror = True
-        else:
-            should_mirror = False
-
-        new_steps += self.setTool(Tool.PEN)
-        new_steps += self.setDrawing(True)
-
-        move_to_steps = self.moveCursorTo(target_x, target_y)
-
-        new_steps += foldStepSeqs(
-            move_to_steps,
-            self.setColor(target_color) + self.setMirrored(should_mirror)
+        move_to_steps = foldStepSeqs(
+            self.moveCursorTo(target_x, target_y),
+            self.setSize(stamp)
         )
-
-        # new_steps += self.setColor(target_color)
+        new_steps += move_to_steps
 
         # Make mark
-        if should_mirror:
-            new_steps += self.setMirrored(True)
-            self.sim.canvas[self.x][self.y] = target_color
-            self.sim.canvas[self.sim.w - self.x - 1][self.y] = target_color
-        else:
-            new_steps += self.setMirrored(False)
-            self.sim.canvas[self.x][self.y] = target_color
+        for (x, y) in self.sim.rel_stamp_footprint(stamp, self.x, self.y):
+            self.sim.canvas[x][y] = target_color
 
         last_step = new_steps.pop()
-        new_steps += foldSteps(last_step, Step.A)  # Safe
+        new_steps += foldSteps(last_step, Step.A if target_color else Step.B)  # Safe
 
-        # print(f"Mark {target_x} {target_y} {target_color}")
+        # print(f"Mark {target_x} {target_y} {target_color}:")
         # printSteps(new_steps)
-
-        return new_steps
-
-    # def markArea(self, area, target_color):
-
-    #     new_steps = []
-
-    #     if all(self.sim.canvas[x][y] == target_color for x, y in area):
-    #         return new_steps
-
-    #     new_steps += self.setTool(Tool.PEN)
-    #     new_steps += self.setDrawing(True)
-
-    #     new_steps += self.setColor(target_color)
-
-    #     for x, y in self.smartTraverse(self.source):
-    #         if (x, y) in area:
-    #             new_steps += foldStepSeqs(
-    #                 self.moveCursorTo(x, y),
-    #                 self.setColor(target_color) + self.setMirrored(should_mirror)
-    #             )
-
-        
-
-    #     # new_steps += self.setColor(target_color)
-
-    #     # Make mark
-    #     if should_mirror:
-    #         new_steps += self.setMirrored(True)
-    #         new_steps.append(Step.A)
-    #         self.sim.canvas[self.x][self.y] = target_color
-    #         self.sim.canvas[self.sim.w - self.x - 1][self.y] = target_color
-    #     else:
-    #         new_steps += self.setMirrored(False)
-    #         new_steps.append(Step.A)
-    #         self.sim.canvas[self.x][self.y] = target_color
-
-    #     # print(f"Mark {target_x} {target_y} {target_color}")
-    #     # printSteps(new_steps)
-
-    #     return new_steps
-
-
-    def setPalette(self, source_palette):
-        new_steps = []
-        assert source_palette
-
-        # Reset palette
-        new_steps += self.setTool(Tool.PAL)
-        new_steps += [Step.NONE, Step.HAT_DOWN, Step.NONE, PseudoStep(Step.A, "ResetPalette"), Step.NONE]
-        self.drawing = False  # Odd case
-
-        new_steps += self.setTool(Tool.EDIT_COLOR)
-        new_steps += self.setDrawing(True)
-
-        # Set each color
-        # Default colors are not all zero. Compensate.
-        for j, color in enumerate(source_palette):
-            new_steps += self.setColorIndex(j)
-            new_steps.append(Step.NONE)
-            for desired, actual in zip(color, DEFAULT_PALETTE[j]):
-                new_steps += self.moveTo(actual, desired, Step.HAT_RIGHT, Step.HAT_LEFT)
-                new_steps.append(Step.HAT_DOWN)
-
-        # Exit menu
-        new_steps.append(Step.A)
-
-        # Done
-        new_steps += self.setTool(Tool.PEN)
-        new_steps += self.setDrawing(True)
-        new_steps.append(Step.NONE)
-        return new_steps
-
-    def fillAll(self, color):
-        new_steps = []
-
-        new_steps += self.setColor(color)
-        new_steps += self.setTool(Tool.FILL_ALL)
-        new_steps.append(PseudoStep(Step.A, "FillAll"))
-        for x in range(self.sim.w):
-            for y in range(self.sim.h):
-                self.sim.canvas[x][y] = color
 
         return new_steps
 
     def toSteps(self):
         new_steps = []
-        if self.settings.get("adjpalette"):
-            self.source.genPalette(sortColorset=self.source.sortColorsByAdjacency)
-        else:
-            self.source.genPalette()
-
-        new_steps += self.setPalette(self.source.palette)
-        new_steps.append(Step.NONE)
+        new_steps += [Step.LCLICK_OVERRIDE]
+        self.sim.clear()
         new_steps += self.drawImage(self.source)
-        # for step in self.genStepsPalette():
-        #     self.steps.append(step)
-        # for step in self.genStepsDraw():
-        #     self.steps.append(step)
         return new_steps
 
     def drawImage(self, source):
         new_steps = []
 
-        if self.settings.get("startfill"):
-            all_pixels = [item for sublist in source.canvas for item in sublist]
-            most_common_color = max(set(all_pixels), key=all_pixels.count)
-
-            new_steps += self.fillAll(most_common_color)
-
         new_steps += self.drawImageCustom(source)
-
-        new_steps += foldStepSeqs(self.moveCursorTo(16, 16), self.setColorIndex(0))
-        new_steps += self.setMirrored(False)
+        new_steps += self.moveCursorTo(*self.center)
 
         self.sim.toImage().save("progress.png")
-
-        # assert self.sim.canvas == self.source.canvas
 
         return new_steps
 
@@ -743,19 +454,83 @@ class NaivePrinter(Printer):
         new_steps = []
 
         for x, y in self.smartTraverse(source):
-            new_steps += self.markPixel(x, y, source.canvas[x][y])
+            try:
+                target = source.canvas[x][y]
+                new_steps += self.markStamp(x, y, target)
+            except IndexError:
+                print(f"{x=}/{len(source.canvas)=}, {y=}/{len(source.canvas[x])=}")
+                raise
         return new_steps
 
 
-class ScreenPrinter(Printer):
+class SizeLayerPrinter(Printer):
+
+    @classmethod
+    def defaultSettings(cls):
+        return {
+            **super().defaultSettings(),
+            **{
+                "threshhold": 0.4,
+            }
+        }
 
     def drawImageCustom(self, source):
         new_steps = []
 
-        for color in source.palette:
-            for x, y in self.smartTraverse(source):
-                if source.canvas[x][y] == color:
-                    new_steps += self.markPixel(x, y, color)
+        def isOffset(tup, spacing_x=8, spacing_y=6):
+            (x, y) = tup
+            return any(
+                ((x2 % (spacing_x - 1) == 0) and (y2 % (spacing_y - 1) == 0))
+                for (x2, y2) in [tup, (x + (spacing_x / 2), y + (spacing_y / 2))]
+            )
+
+        def markedImage():
+            im = self.sim.toImage()
+            pixels = im.load()
+            pixels[self.x, self.y] = (255,0,0)
+            return im
+
+        gif_frames = []
+        for i, (stamp, min_increment) in enumerate([
+            (Size.LARGE, (7, 7)),
+            (Size.MED, (4, 3)),
+            # (Size.SMALL, (1,1))
+        ]):
+
+            for x, y in self.smartTraverse(source, min_increment=min_increment):  # filter(isOffset, ):
+                # print(x, y)
+                chunk = self.sim.rel_stamp_footprint(stamp, x, y)
+                threshhold = self.settings['threshhold']
+                marks = [
+                    (x2, y2) for (x2, y2) in chunk
+                    if source.canvas[x2][y2] != self.sim.canvas[x2][y2]
+                ]
+                if len(marks) > threshhold * len(chunk):
+                    # print("Stamping", len(marks), threshhold, len(chunk))
+                    new_steps += self.markStamp(x, y, source.canvas[x][y], stamp=stamp)
+                    gif_frames.append(markedImage())
+
+        for i, (x, y) in enumerate(self.smartTraverse(source)):
+            new_steps += self.markStamp(x, y, source.canvas[x][y])
+            if i % 16 == 0:
+                gif_frames.append(markedImage())
+
+        if gif_frames:
+            gif_frames[0].save(
+                f'sl_{threshhold}_progress.gif', format='GIF', append_images=gif_frames[1:],
+                save_all=True, duration=30, loop=0)
+
+        # gif_frames = []
+        # for x, y in reversed([*self.smartTraverse(source)]):
+        #     pix_step = self.markStamp(x, y, source.canvas[x][y])
+        #     new_steps += pix_step
+        #     # if len(pix_step) > 0:
+        #     #     gif_frames.append(self.sim.toImage())
+
+        # if gif_frames:
+        #     gif_frames[0].save(
+        #         f'sl_{threshhold}_progress2.gif', format='GIF', append_images=gif_frames[1:],
+        #         save_all=True, duration=30, loop=0)
         return new_steps
 
 
@@ -769,7 +544,7 @@ class SpiralPrinter(Printer):
         y = 16
 
         while self.sim.canvas != source:
-            new_steps += self.markPixel(x, y, source.canvas[x][y])
+            new_steps += self.markStamp(x, y, source.canvas[x][y])
             try:
                 if direction == "L":
                     x -= 1
@@ -804,12 +579,12 @@ def add_bool_arg(parser, name, default=True, help=None):
     parser.set_defaults(**{name: default})
 
 
-def identifyInfile(infile_image):
-    print(infile_image.size)
-    if infile_image.size[0] < 64:
-        if infile_image.size[1] < 64:
-            return "PATTERN"
-    return "UNKNOWN"
+# def identifyInfile(infile_image):
+#     print(infile_image.size)
+#     if infile_image.size[0] < 64:
+#         if infile_image.size[1] < 64:
+#             return "PATTERN"
+#     return "UNKNOWN"
 
 
 def printSteps(steps):
@@ -829,18 +604,18 @@ parser = argparse.ArgumentParser()
 parser.add_argument("infile", help="Input pattern file")
 add_bool_arg(parser, "dump", default=True, help="Save pattern")
 add_bool_arg(parser, "gen", default=True, help="Generate steps file")
-add_bool_arg(parser, "preview", default=True, help="Generate scaled preview file")
+# add_bool_arg(parser, "preview", default=True, help="Generate scaled preview file")
 add_bool_arg(parser, "bogo", default=True, help="Find fastest solution")
 add_bool_arg(parser, "make", default=False, help="Automatically run make after completion")
 args = parser.parse_args()
 
-infile_image = Image.open(args.infile).convert('RGBA')
-infile_type = identifyInfile(infile_image)
+infile_image = Image.open(args.infile).convert('L')
+infile_type = "PATTERN" # identifyInfile(infile_image)
 
 pattern = None
 if infile_type == "PATTERN":
     w, h = infile_image.size
-    pattern = ACCanvas(w, h).fromPattern(infile_image)
+    pattern = Splat3Canvas(w, h).fromPattern(infile_image)
 else:
     raise NotImplementedError
 
@@ -848,34 +623,34 @@ else:
 if args.dump:
     if infile_type == "PATTERN":
         pattern.toImage().save("dump.png")
-        pattern.genPalette()
-        pattern.toPalImg().save("pal.png")
+        # pattern.genPalette()
+        # pattern.toPalImg().save("pal.png")
     else:
         raise NotImplementedError
 
-if args.preview:
-    if infile_type == "PATTERN":
-        image = args.infile
-    elif args.dump:
-        image = "dump.png"
-    else:
-        raise NotImplementedError
-    subprocess.run(["ScalerTest_Windows.exe", "-6xBRZ", image, "scalepreview.png"])
-    print("Generated preview at scalepreview.png")
+# if args.preview:
+#     if infile_type == "PATTERN":
+#         image = args.infile
+#     elif args.dump:
+#         image = "dump.png"
+#     else:
+#         raise NotImplementedError
+#     subprocess.run(["ScalerTest_Windows.exe", "-6xBRZ", image, "scalepreview.png"])
+#     print("Generated preview at scalepreview.png")
 
 settings_permutations = [
     (
         binstr, 
         {
-            "usemirror": (binstr[0] == "1"),
-            "horizontal": (binstr[1] == "1"),
-            "vertical": (binstr[2] == "1"),
-            "startfill": (binstr[3] == "1"),
-            "adjpalette": (binstr[4] == "1")
+            # "usemirror": (binstr[0] == "1"),
+            "horizontal": (binstr[0] == "1"),
+            "threshhold": (0.7 if binstr[1] == "1" else 0.3),
+            # "startfill": (binstr[3] == "1"),
+            # "adjpalette": (binstr[4] == "1")
         },
     )
     for binstr in 
-    ["".join(seq) for seq in product("01", repeat=5)]
+    ["".join(seq) for seq in product("01", repeat=2)]
 ]
 
 if args.gen:
@@ -883,12 +658,12 @@ if args.gen:
         best_steps = None
         best_printer = None
         # , SpiralPrinter
-        for Printer_ in [NaivePrinter, ScreenPrinter]:
+        for Printer_ in [NaivePrinter, SizeLayerPrinter]:
             for settings_str, settings in settings_permutations:
                 printer = Printer_(pattern, settings=settings)
                 try:
                     steps = printer.toSteps()
-                    print(f"{Printer_} ({settings_str}) printed pattern in {len(steps)} steps ({(len(steps)*3)/8} bytes) (~{fmtTime(len(steps) * TIME_PER_STEP)} runtime)")
+                    print(f"{Printer_} ({settings_str}) printed pattern in {len(steps)} steps ({(len(steps)*3)/8} bytes / 8192 ({((len(steps)*3)/8)/81.92}%)) (~{fmtTime(len(steps) * TIME_PER_STEP)} runtime)")
 
                     if best_steps is None or len(steps) < len(best_steps):
                         best_steps = steps
@@ -898,7 +673,7 @@ if args.gen:
                     # print(f"{Printer_} ({settings_str}) has invalid settings.")
                     pass
                 except Exception:
-                    print(f"{Printer_} ({settings_str}) failed!")
+                    print(f"{Printer_} ({settings_str} {settings}) failed!")
 
                     import traceback
                     traceback.print_exc()
