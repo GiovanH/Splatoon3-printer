@@ -382,16 +382,16 @@ class Printer(object):
             self.sim.canvas[x][y] == target_color
             for (x, y) in chunk
         ):
-            return (False, target_color)
+            return (False, count, target_color)
 
-        return (True, target_color)
+        return (True, count, target_color)
 
     def markStamp(self, target_x, target_y, source, stamp=Size.SMALL):
         new_steps = []
 
-        should_stamp, target_color = self.shouldStamp(target_x, target_y, source, stamp)
+        can_stamp, count, target_color = self.shouldStamp(target_x, target_y, source, stamp)
 
-        if not should_stamp:
+        if not can_stamp:
             return new_steps
 
         move_to_steps = foldStepSeqs(
@@ -433,6 +433,8 @@ class Printer(object):
 
     def markedImage(self):
         im = self.sim.toImage()
+        return im
+
         pixels = im.load()
         try:
             pixels[self.x, self.y] = (255, 0, 0)
@@ -482,13 +484,43 @@ def genPixelsNearPoint(cx, cy, max_radius=400):
         x += 1
 
 
+def genPixelsNearPointSquare(cx, cy, max_radius=400):
+    radius = 1
+    # (x, y) = (0, 0)
+    yield(cx, cy)
+    while radius < max_radius:
+        # TODO: sometimes yields duplicates
+        # print(radius)
+        for length in range(-radius, radius + 1):
+            for side in [radius, -radius]:
+                yield (cx + side, cy + length)  # left and right edges
+                yield (cx + length, cy + side)  # top and bottom edges
+        radius += 1
+        # x += 1
+
+
+# g = genPixelsNearPoint(0, 0)
+# print([next(g) for i in range(20)])
+# g = genPixelsNearPointSquare(0, 0)
+# print([next(g) for i in range(20)])
+
 # image_canvas = Image.new("RGB", (100, 100))
 # pixels = image_canvas.load()
-# g = genPixelsNearPoint(50, 50)
+# g = genPixelsNearPointSquare(50, 50)
 # for i in range(255):
 #     x, y = next(g)
 #     pixels[x, y] = (i, i, 255)
 # image_canvas.save("gentest.png")
+# # return
+# os.exit()
+# image_canvas = Image.new("RGB", (100, 100))
+# pixels = image_canvas.load()
+# g = genPixelsNearPointSquare(50, 50)
+# for i in range(255):
+#     x, y = next(g)
+#     pixels[x, y] = (i, i, 255)
+# image_canvas.save("gentest.png")
+
 
 class ConnectedPrinter(NaivePrinter):
 
@@ -497,28 +529,21 @@ class ConnectedPrinter(NaivePrinter):
         return {
             **super().defaultSettings(),
             **{
-                "threshhold": 0.4,
+                "threshhold": 0.9,
+                "nearalgo": genPixelsNearPointSquare,
+                "stamps": [Size.SMALL]
             }
         }
 
     def closestTodoPixel(self, source, stamp=Size.SMALL):
-        for (x, y) in genPixelsNearPoint(self.x, self.y):
-            # print(x, y)
+        for (x, y) in self.settings['nearalgo'](self.x, self.y):
             if not (x in range(source.w) and y in range(source.h)):
                 continue
             try:
                 chunk = self.sim.rel_stamp_footprint(stamp, x, y)
-                marks = [
-                    (x2, y2) for (x2, y2) in chunk
-                    if source.canvas[x2][y2] != self.sim.canvas[x2][y2]
-                ]
-                if len(marks) > self.settings['threshhold'] * len(chunk):
-                    should_stamp, __ = self.shouldStamp(x, y, source, stamp)
-                    # print("Should stamp", x, y, should_stamp)
-                    if should_stamp:
-                        return (x, y)
-                #     # print("Stamping", x, y, len(marks), len(chunk), source[x][y])
-                #     return (x, y)
+                can_stamp, count, target_color = self.shouldStamp(x, y, source, stamp)
+                if can_stamp and (count > self.settings['threshhold'] * len(chunk)):
+                    return (x, y)
             except IndexError:
                 print("Out of bounds?", x, y)
                 print(f"{len(self.sim.canvas)=} {len(source.canvas)=}")
@@ -533,23 +558,68 @@ class ConnectedPrinter(NaivePrinter):
         # Mark todo pixel
         # Find nearest todo pixel
         # print(self.sim.canvas, source)
+        stack = set()
         for stamp in self.settings["stamps"]:
             while True:  # use TypeError to break
-                # print("Getting todo pixel")
                 try:
                     (x, y) = self.closestTodoPixel(source, stamp=stamp)
+                    assert (x, y) not in stack, (x, y, stack)
                 except TypeError:
                     # print("Out of todos")
                     break
-                # print("Stamping", x, y)
+                # print("Stamping", x, y, stamp)
                 new_steps += self.markStamp(x, y, source, stamp=stamp)
+                stack.add((x, y))
                 if self.settings.get('gif_out'):
                     # if stamp != Size.SMALL or len(new_steps) % 16 == 0:
-                        gif_frames.append(self.markedImage())
+                    gif_frames.append(self.markedImage())
         if gif_frames:
             gif_frames[0].save(
                 self.settings.get('gif_out'), format='GIF', append_images=gif_frames[1:],
                 save_all=True, duration=30, loop=0)
+        return new_steps
+
+# TODO printer that does a naive smartTraverse but adjusts its stamp size each pixel and checks threshhold
+
+
+class MultiBrushPrinter(ConnectedPrinter):
+
+    @classmethod
+    def defaultSettings(cls):
+        return {
+            **super().defaultSettings(),
+            **{
+                "threshhold": 0.9,
+                "min_increment": (4, 3)
+            }
+        }
+
+    def drawImageCustom(self, source):
+        new_steps = []
+
+        gif_frames = []
+        for x, y in self.smartTraverse(source, min_increment=self.settings['min_increment']):  # filter(isOffset, ):
+            # print(x, y)
+            for stamp in [Size.LARGE, Size.MED, Size.SMALL]:
+                chunk = self.sim.rel_stamp_footprint(stamp, x, y)
+                can_stamp, count, target_color = self.shouldStamp(x, y, source, stamp)
+
+                if can_stamp and count > self.settings['threshhold'] * len(chunk):
+                    new_steps += self.markStamp(x, y, source, stamp=stamp)
+                    if self.settings.get('gif_out'):
+                        gif_frames.append(self.markedImage())
+
+        gif_out_pre = self.settings.get('gif_out')
+        if gif_out_pre:
+            self.settings['gif_out'] = "super_" + gif_out_pre
+        new_steps += super().drawImageCustom(source)
+        self.settings['gif_out'] = gif_out_pre
+
+        if gif_frames:
+            gif_frames[0].save(
+                self.settings.get('gif_out'), format='GIF', append_images=gif_frames[1:],
+                save_all=True, duration=30, loop=0)
+
         return new_steps
 
 
@@ -561,18 +631,13 @@ class SizeLayerPrinter(NaivePrinter):
             **super().defaultSettings(),
             **{
                 "threshhold": 0.4,
+                "stamps": [Size.SMALL],
+                "no_min_increment": False
             }
         }
 
     def drawImageCustom(self, source):
         new_steps = []
-
-        def isOffset(tup, spacing_x=8, spacing_y=6):
-            (x, y) = tup
-            return any(
-                ((x2 % (spacing_x - 1) == 0) and (y2 % (spacing_y - 1) == 0))
-                for (x2, y2) in [tup, (x + (spacing_x / 2), y + (spacing_y / 2))]
-            )
 
         gif_frames = []
         for i, (stamp, min_increment) in enumerate([
@@ -582,6 +647,8 @@ class SizeLayerPrinter(NaivePrinter):
         ]):
             if stamp not in self.settings["stamps"]:
                 continue
+            if self.settings["no_min_increment"]:
+                min_increment = (1, 1)
             for x, y in self.smartTraverse(source, min_increment=min_increment):  # filter(isOffset, ):
                 # print(x, y)
                 chunk = self.sim.rel_stamp_footprint(stamp, x, y)
@@ -605,44 +672,6 @@ class SizeLayerPrinter(NaivePrinter):
                 self.settings.get('gif_out'), format='GIF', append_images=gif_frames[1:],
                 save_all=True, duration=30, loop=0)
 
-        return new_steps
-
-
-class SpiralPrinter(Printer):
-
-    def drawImageCustom(self, source):
-        new_steps = []
-        direction = "L"
-
-        x = 16
-        y = 16
-
-        while self.sim.canvas != source:
-            new_steps += self.markStamp(x, y, source)
-            try:
-                if direction == "L":
-                    x -= 1
-                    # new_steps.append(Step.HAT_LEFT)
-                    if self.sim.canvas[x][y - 1] != source.canvas[x][y - 1]:
-                        direction = "U"
-                elif direction == "R":
-                    x += 1
-                    # new_steps.append(Step.HAT_RIGHT)
-                    if self.sim.canvas[x][y + 1] != source.canvas[x][y + 1]:
-                        direction = "D"
-                elif direction == "U":
-                    y -= 1
-                    # new_steps.append(Step.HAT_UP)
-                    if self.sim.canvas[x + 1][y] != source.canvas[x + 1][y]:
-                        direction = "R"
-                elif direction == "D":
-                    y += 1
-                    # new_steps.append(Step.HAT_DOWN)
-                    if self.sim.canvas[x - 1][y] != source.canvas[x - 1][y]:
-                        direction = "L"
-            except IndexError:
-                print(x, y)
-                break
         return new_steps
 
 
@@ -687,43 +716,46 @@ if args.gen:
         best_steps = None
         best_printer = None
         for (Printer_, settings_permutations) in [
-            (NaivePrinter, [
-                (binstr,
-                    {
-                        "horizontal": (binstr[0] == "1"), "vertical": (binstr[0] != "1"),
-                    },
-                 )
-                for binstr in ["".join(seq) for seq in product("01", repeat=1)]
-            ]),
-            (SizeLayerPrinter, [
-                (binstr,
-                    {
-                        "horizontal": (binstr[0] == "1"), "vertical": (binstr[0] != "1"),
-                        "threshhold": (0.7 if binstr[1] == "1" else 0.3),
-                        "stamps": (
-                            [Size.LARGE, Size.MED, Size.SMALL] if binstr[1:3] == "00"
-                            else [Size.LARGE, Size.SMALL] if binstr[1:3] == "01"
-                            else [Size.MED, Size.SMALL] if binstr[1:3] == "10"
-                            else [Size.SMALL] if binstr[1:3] == "11" else binstr[2:4]
-                        )
-                    },
-                 )
-                for binstr in ["".join(seq) + "11" for seq in product("01", repeat=2)]
-            ]),
+            # (NaivePrinter, [
+            #     (binstr,
+            #         {
+            #             "horizontal": (binstr[0] == "1"), "vertical": (binstr[0] != "1"),
+            #         },
+            #      )
+            #     for binstr in ["".join(seq) for seq in product("01", repeat=1)]
+            # ]),
+            # (SizeLayerPrinter, [
+            #     (binstr,
+            #         {
+            #             "horizontal": (binstr[0] == "1"), "vertical": (binstr[0] != "1"),
+            #             "threshhold": (0.7 if binstr[1] == "1" else 0.3),
+            #             "no_min_increment": (binstr[2] == "1"),
+            #             "stamps": [Size.LARGE, Size.MED, Size.SMALL]
+            #         },
+            #      )
+            #     for binstr in ["".join(seq) for seq in product("01", repeat=3)]
+            # ]),
             (ConnectedPrinter, [
                 (binstr,
                     {
                         "threshhold": (0.8 if binstr[0] == "1" else 0.6),
-                        "stamps": (
-                            [Size.LARGE, Size.MED, Size.SMALL] if binstr[1:3] == "00"
-                            else [Size.LARGE, Size.SMALL] if binstr[1:3] == "01"
-                            else [Size.MED, Size.SMALL] if binstr[1:3] == "10"
-                            else [Size.SMALL] if binstr[1:3] == "11" else binstr[1:3]
-                        )
+                        "nearalgo": (genPixelsNearPoint if binstr[1] == "1" else genPixelsNearPointSquare),
+                        "stamps": [Size.SMALL] # TODO: doesn't work with large stamps? Size.LARGE, Size.MED,
                     },
                  )
-                for binstr in ["".join(seq) + "11" for seq in product("01", repeat=1)]
-            ])
+                for binstr in ["".join(seq) for seq in product("01", repeat=2)]
+            ]),
+            # (MultiBrushPrinter, [
+            #     (binstr,
+            #         {
+            #             "horizontal": (binstr[0] == "1"), "vertical": (binstr[0] != "1"),
+            #             "threshhold": (0.9 if binstr[1] == "1" else 0.5),
+            #             "nearalgo": (genPixelsNearPoint if binstr[2] == "1" else genPixelsNearPointSquare),
+            #             "min_increment": ((3, 3) if binstr[3] == "1" else (7, 7))
+            #         },
+            #      )
+            #     for binstr in ["".join(seq) for seq in product("01", repeat=4)]
+            # ]),
         ]:
             for settings_str, settings in settings_permutations:
                 printer = Printer_(pattern, settings=settings)
