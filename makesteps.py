@@ -7,6 +7,9 @@ import enum
 from itertools import zip_longest, product
 import subprocess
 
+
+import itertools
+
 TEENSY_MCU = "AT90USB1286"
 JOYSTICK_HEX = "Joystick.hex"
 
@@ -64,7 +67,7 @@ class PseudoStep(object):
         steps_part = (self.steps[0].name if len(self.steps) == 1 else "+".join(s.name for s in self.steps))
         label_part = (f" ({self.label})" if self.label else "")
         return f"{steps_part}{label_part}"
-    
+
     @property
     def value(self):
         v1, v2 = 0, 8
@@ -81,16 +84,16 @@ class PseudoStep(object):
 
     def __repr__(self):
         return "<%s.%s: %r>" % (self.__class__.__name__, self.name, self.value)
-    
+
 
 def foldSteps(step1, step2):
-    if step1.value[0] != 0x0 and step2.value[0] != 0x0: 
+    if step1.value[0] != 0x0 and step2.value[0] != 0x0:
         # print(f"Can't fold {step1}, {step2}")
         return [step1, step2]
     if step1.value[0] == Step.LR.value[0] or step2.value[0] == Step.LR.value[0]:
         # print(f"Can't fold {step1}, {step2}")
         return [step1, step2]
-    if step1.value[1] != 0x8 and step2.value[1] != 0x8: 
+    if step1.value[1] != 0x8 and step2.value[1] != 0x8:
         # print(f"Can't fold {step1}, {step2}")
         return [step1, step2]
     else:
@@ -103,7 +106,7 @@ def foldStepSeqs(steps1, steps2):
     if not steps2:
         return steps1
 
-    new_steps_compressed = []   
+    new_steps_compressed = []
     for xstep, ystep in zip_longest(steps1, steps2, fillvalue=Step.NONE):
         new_steps_compressed += foldSteps(xstep, ystep)
     # print("Folded")
@@ -131,7 +134,7 @@ def compressSteps(steps):
     if last_step:
         bData, hData = last_step.value
         yield (bData, hData, last_step_times, last_step.name)
-        
+
 
 def saveSteps(steps):
     numsteps = 0
@@ -139,11 +142,11 @@ def saveSteps(steps):
     with open("steps.c", "w") as fp:
         fp.write('#include "types.h"\n')
         fp.write('uint8_t step[] = {\n')
-        
+
         for bData, hData, repetitions, label in compressSteps(steps):
             numsteps += 1
             fp.write(f"    {bData}, {hData}, {repetitions}, // {label} x {repetitions}\n")
-        
+
         fp.write(" 0 };\n")
         fp.write(f"static int numsteps = {numsteps};\n")
 
@@ -179,7 +182,7 @@ class Splat3Canvas():
         pixels = image_canvas.load()
         for x in range(self.w):
             for y in range(self.h):
-                pixels[x, y] = (0,0,0) if self.canvas[x][y] else (255,255,255)
+                pixels[x, y] = (0, 0, 0) if self.canvas[x][y] else (255, 255, 255)
         return image_canvas
 
     def getAllNeighborPairs(self):
@@ -196,39 +199,40 @@ class Splat3Canvas():
             if (x + tx) in range(self.w) and (y + ty) in range(self.h)
         ]
 
-import itertools
 
 class Footprints(enum.Enum):
     # Pixels, releative to the center, that this affects.
     SMALL = [(0, 0)]
-    MED = list(set([ # a square
+    MED = list(set([  # a square
         (x, y)
         for x in range(-2, 3)
         for y in range(-2, 3)
-    ]) - set([ # with no corners
+    ]) - set([  # with no corners
         (x, y)
         for x in [-2, 2]
         for y in [-2, 2]
     ]))
-    LARGE = list(set([ # a square
+    LARGE = list(set([  # a square
         (x, y)
         for x in range(-3, 4)
         for y in range(-3, 4)
-    ]) | set([ # with extra bits
+    ]) | set([  # with extra bits
         (x, y)
         for x in range(-1, 2)
         for y in [-4, 4]
-    ]) | set([ # with extra bits
+    ]) | set([  # with extra bits
         (x, y)
         for x in [-4, 4]
         for y in range(-1, 2)
     ]))
+
 
 class Size(enum.Enum):
     # Index, Radius
     SMALL = (0, Footprints.SMALL)
     MED = (1, Footprints.MED)
     LARGE = (2, Footprints.LARGE)
+
 
 class Printer(object):
 
@@ -239,8 +243,8 @@ class Printer(object):
 
         self.source = source
 
-        self.x = int(source.w/2)
-        self.y = int(source.h/2)
+        self.x = int(source.w / 2)
+        self.y = int(source.h / 2)
         self.center = (self.x, self.y)
 
         self.size = Size.MED
@@ -248,7 +252,7 @@ class Printer(object):
         self.settings = self.defaultSettings()
         self.settings.update(settings)
 
-        self.sim = Splat3Canvas(self.source.w, self.source.h) # .fromSentinal()
+        self.sim = Splat3Canvas(self.source.w, self.source.h)  # .fromSentinal()
 
     @classmethod
     def defaultSettings(cls):
@@ -265,7 +269,6 @@ class Printer(object):
             new_steps += ([minus] * (actual - desired))
 
         return new_steps
-
 
     def getNeighbors(self, tx, ty):
         for ox in [0, -1, 1]:
@@ -304,7 +307,7 @@ class Printer(object):
         new_steps_y += self.moveTo(self.y, target_y, Step.HAT_DOWN, Step.HAT_UP)
         self.y = target_y
 
-        new_steps_compressed = []   
+        new_steps_compressed = []
         for xstep, ystep in zip_longest(new_steps_x, new_steps_y, fillvalue=Step.NONE):
             if ystep == Step.NONE:
                 new_steps_compressed.append(xstep)
@@ -335,7 +338,7 @@ class Printer(object):
 
         return new_steps_compressed
 
-    def smartTraverse(self, source, min_increment=(1,1)):
+    def smartTraverse(self, source, min_increment=(1, 1)):
         if self.settings.get("horizontal") and self.settings.get("vertical"):
             # Diagonal traverse
             # x = 0
@@ -444,6 +447,12 @@ class Printer(object):
 
         return new_steps
 
+    def markedImage(self):
+        im = self.sim.toImage()
+        pixels = im.load()
+        pixels[self.x, self.y] = (255, 0, 0)
+        return im
+
     def drawImageCustom(self, source):
         raise NotImplementedError
 
@@ -454,12 +463,77 @@ class NaivePrinter(Printer):
         new_steps = []
 
         for x, y in self.smartTraverse(source):
+            new_steps += self.markStamp(x, y, source.canvas[x][y])
+        return new_steps
+
+def genPixelsNearPoint(cx, cy, max_radius=400):
+    radius = 1
+    (x, y) = (0, 0)
+    yield(cx, cy)
+    while radius < max_radius:
+        for i in range(radius):
+            (x, y) = (x - 1, y - 1)
+            yield (cx + x, cy + y)
+        for i in range(radius):
+            (x, y) = (x - 1, y + 1)
+            yield (cx + x, cy + y)
+        for i in range(radius):
+            (x, y) = (x + 1, y + 1)
+            yield (cx + x, cy + y)
+        for i in range(radius):
+            (x, y) = (x + 1, y - 1)
+            yield (cx + x, cy + y)
+        radius += 1
+        x += 1
+
+
+# image_canvas = Image.new("RGB", (100, 100))
+# pixels = image_canvas.load()
+# g = genPixelsNearPoint(50, 50)
+# for i in range(255):
+#     x, y = next(g)
+#     pixels[x, y] = (i, i, 255)
+# image_canvas.save("gentest.png")
+
+class ConnectedPrinter(Printer):
+
+    def closestTodoPixel(self, source):
+        for (x, y) in genPixelsNearPoint(self.x, self.y):
+            # print(x, y)
+            if not (x in range(source.w) and y in range(source.h)):
+                continue
             try:
-                target = source.canvas[x][y]
-                new_steps += self.markStamp(x, y, target)
+                if self.sim.canvas[x][y] != source.canvas[x][y]:
+                    return (x, y)
             except IndexError:
-                print(f"{x=}/{len(source.canvas)=}, {y=}/{len(source.canvas[x])=}")
+                print("Out of bounds?", x, y)
+                print(f"{len(self.sim.canvas)=} {len(source.canvas)=}")
+                print(f"{len(self.sim.canvas[x])=} {len(source.canvas[x])=}")
                 raise
+
+    def drawImageCustom(self, source):
+        new_steps = []
+        gif_frames = []
+
+        # Find a todo pixel
+        # Mark todo pixel
+        # Find nearest todo pixel
+        # print(self.sim.canvas, source)
+        i = 0
+        while self.sim.canvas != source:
+            # print("Getting todo pixel")
+            try:
+                (x, y) = self.closestTodoPixel(source)
+            except TypeError:
+                break # Out of todos
+            # print("Got todo pixel", x, y)
+            new_steps += self.markStamp(x, y, source.canvas[x][y])
+            if len(new_steps) % 16 == 0:
+                gif_frames.append(self.markedImage())
+        if gif_frames:
+            gif_frames[0].save(
+                f'con_progress2.gif', format='GIF', append_images=gif_frames[1:],
+                save_all=True, duration=30, loop=0)
         return new_steps
 
 
@@ -484,11 +558,6 @@ class SizeLayerPrinter(Printer):
                 for (x2, y2) in [tup, (x + (spacing_x / 2), y + (spacing_y / 2))]
             )
 
-        def markedImage():
-            im = self.sim.toImage()
-            pixels = im.load()
-            pixels[self.x, self.y] = (255,0,0)
-            return im
 
         gif_frames = []
         for i, (stamp, min_increment) in enumerate([
@@ -508,17 +577,17 @@ class SizeLayerPrinter(Printer):
                 if len(marks) > threshhold * len(chunk):
                     # print("Stamping", len(marks), threshhold, len(chunk))
                     new_steps += self.markStamp(x, y, source.canvas[x][y], stamp=stamp)
-                    gif_frames.append(markedImage())
+                    # gif_frames.append(self.markedImage())
 
         for i, (x, y) in enumerate(self.smartTraverse(source)):
             new_steps += self.markStamp(x, y, source.canvas[x][y])
-            if i % 16 == 0:
-                gif_frames.append(markedImage())
+            # if i % 16 == 0:
+            #     gif_frames.append(self.markedImage())
 
-        if gif_frames:
-            gif_frames[0].save(
-                f'sl_{threshhold}_progress.gif', format='GIF', append_images=gif_frames[1:],
-                save_all=True, duration=30, loop=0)
+        # if gif_frames:
+        #     gif_frames[0].save(
+        #         f'sl_{threshhold}_progress.gif', format='GIF', append_images=gif_frames[1:],
+        #         save_all=True, duration=30, loop=0)
 
         # gif_frames = []
         # for x, y in reversed([*self.smartTraverse(source)]):
@@ -535,7 +604,7 @@ class SizeLayerPrinter(Printer):
 
 
 class SpiralPrinter(Printer):
-        
+
     def drawImageCustom(self, source):
         new_steps = []
         direction = "L"
@@ -570,7 +639,7 @@ class SpiralPrinter(Printer):
                 print(x, y)
                 break
         return new_steps
-        
+
 
 def add_bool_arg(parser, name, default=True, help=None):
     group = parser.add_mutually_exclusive_group(required=False)
@@ -599,6 +668,7 @@ def fmtTime(seconds):
     else:
         return f"{int(seconds // 60)}m {int(seconds % 60)}s"
 
+
 # Main
 parser = argparse.ArgumentParser()
 parser.add_argument("infile", help="Input pattern file")
@@ -610,7 +680,7 @@ add_bool_arg(parser, "make", default=False, help="Automatically run make after c
 args = parser.parse_args()
 
 infile_image = Image.open(args.infile).convert('L')
-infile_type = "PATTERN" # identifyInfile(infile_image)
+infile_type = "PATTERN"  # identifyInfile(infile_image)
 
 pattern = None
 if infile_type == "PATTERN":
@@ -638,40 +708,54 @@ if args.dump:
 #     subprocess.run(["ScalerTest_Windows.exe", "-6xBRZ", image, "scalepreview.png"])
 #     print("Generated preview at scalepreview.png")
 
-settings_permutations = [
-    (
-        binstr, 
-        {
-            # "usemirror": (binstr[0] == "1"),
-            "horizontal": (binstr[0] == "1"),
-            "threshhold": (0.7 if binstr[1] == "1" else 0.3),
-            # "startfill": (binstr[3] == "1"),
-            # "adjpalette": (binstr[4] == "1")
-        },
-    )
-    for binstr in 
-    ["".join(seq) for seq in product("01", repeat=2)]
-]
 
 if args.gen:
     if args.bogo:
         best_steps = None
         best_printer = None
         # , SpiralPrinter
-        for Printer_ in [NaivePrinter, SizeLayerPrinter]:
+        for (Printer_, settings_permutations) in [
+            (NaivePrinter, [
+                (   binstr,
+                    {
+                        "horizontal": (binstr[0] == "1"),
+                        "vertical": (binstr[0] != "1"),
+                    },
+                )
+                for binstr in ["".join(seq) for seq in product("01", repeat=1)]
+            ]),
+            # (SizeLayerPrinter, [
+            #     (   binstr,
+            #         {
+            #             "horizontal": (binstr[0] == "1"),
+            #             "threshhold": (0.7 if binstr[1] == "1" else 0.3),
+            #         },
+            #     )
+            #     for binstr in ["".join(seq) for seq in product("01", repeat=2)]
+            # ]),
+            (ConnectedPrinter, [
+                (   binstr,
+                    {
+                        # "horizontal": (binstr[0] == "1"),
+                        # "vertical": (binstr[0] != "1"),
+                    },
+                )
+                for binstr in ["".join(seq) for seq in product("0", repeat=1)]
+            ])
+        ]:
             for settings_str, settings in settings_permutations:
                 printer = Printer_(pattern, settings=settings)
                 try:
                     steps = printer.toSteps()
-                    print(f"{Printer_} ({settings_str}) printed pattern in {len(steps)} steps ({(len(steps)*3)/8} bytes / 8192 ({((len(steps)*3)/8)/81.92}%)) (~{fmtTime(len(steps) * TIME_PER_STEP)} runtime)")
+                    print(
+                        f"{Printer_} ({settings_str}) printed pattern in {len(steps)} steps "
+                        f"({(len(steps)*3)/8} bytes / 8192 ({((len(steps)*3)/8)/81.92}%)) "
+                        f"(~{fmtTime(len(steps) * TIME_PER_STEP)} runtime)")
 
                     if best_steps is None or len(steps) < len(best_steps):
                         best_steps = steps
                         best_printer = printer
                         print("BEST!")
-                except NotImplementedError:
-                    # print(f"{Printer_} ({settings_str}) has invalid settings.")
-                    pass
                 except Exception:
                     print(f"{Printer_} ({settings_str} {settings}) failed!")
 
