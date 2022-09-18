@@ -4,7 +4,6 @@
 #define ECHOES 12 // 30 FPS
 #define BLANK_ECHOES 12 // 30 FPS
 #define STEP_BLOCK_SIZE 3 // ints per step
-#define DO_BLANK 1
 
 //#define PRE SPLAT
 #define PRE 1
@@ -79,7 +78,7 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 	// );
 
 	if (sys_echoes_remaining > 0) {
-		// Echo last
+		// Echo last for polling purposes
 		sys_echoes_remaining -= 1;
 		memcpy(ReportData, &last_report, sizeof(USB_JoystickReport_t));
 		// ReportData->VendorSpec = 0;
@@ -93,14 +92,12 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 			return;
 		} else 
 		if (echoes_remaining > 0) {
-			// Echo last
+			// Echo last as a repeated input
 			echoes_remaining -= 1;
 			memcpy(ReportData, &last_report, sizeof(USB_JoystickReport_t));
 			// ReportData->VendorSpec = 1;
 			sys_echoes_remaining = ECHOES;
-			#if DO_BLANK
 			need_blank = BLANK_ECHOES;  // Blank for 1 button after this
-			#endif
 			return;
 		} else {
 			memcpy(ReportData, &BLANK_REPORT, sizeof(USB_JoystickReport_t));
@@ -111,13 +108,15 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 			if (stepIndex > arrayMax)
 			{
 				if (reportArray == prestep) {
+					// If we're still in the prestep, just switch to the main report array.
 					reportArray = step;
 					arrayMax = (numsteps - 1);
 					stepIndex = 0;
 				} else if (WRAPAROUND) {
+					// Otherwise, if wraparound is set, go back to step #1 of the main report array.
 					stepIndex = 0;
 				} else {
-					// Overflow without wraparound
+					// Otherwise just capture and hold.
 					// Return blank report
 					ReportData->Button = SWITCH_CAPTURE;
 					ReportData->VendorSpec = 88;
@@ -128,15 +127,15 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 			}
 
 			// Send next report
-			uint8_t offset = (STEP_BLOCK_SIZE*stepIndex);
-			uint8_t bData = reportArray[offset+0];
-			uint8_t hData = reportArray[offset+1];
-			uint8_t repData = reportArray[offset+2];
+			uint8_t bData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+0];
+			uint8_t hData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+1];
+			uint8_t repData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+2];
 
-			ReportData->Button = bData;
 			ReportData->HAT = hData;
-			if (bData == 0xFF) {
+			if (bData == 0x08) {
 				ReportData->Button = 0x400;
+			} else {
+				ReportData->Button = bData;
 			}
 			// ReportData->VendorSpec = 2;
 
@@ -151,11 +150,6 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 			#if DO_BLANK
 			need_blank = BLANK_ECHOES;  // Blank for 1 button after this
 			#endif
-		} 
-		
-		
+		}
 	}
-
-
 }
-

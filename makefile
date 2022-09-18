@@ -54,6 +54,8 @@ include $(LUFA_PATH)/Build/lufa_atprogram.mk
 with-alert: all
 with-alert: CC_FLAGS += -DALERT_WHEN_DONE
 
+install: $(TARGET).hex
+	../teensy_loader_cli --mcu $(MCU) -w $(TARGET).hex
 
 clean:  
 	rm -v test.exe test2.exe test.exe.stackdump test2.exe.stackdump steps.o $(subst .c,.o,$(TESTSRC)) $(subst .c,.o,$(MYSRC)) $(TARGET).bin $(TARGET).lss $(TARGET).sym $(TARGET).eep $(TARGET).hex $(TARGET).map $(TARGET).elf
