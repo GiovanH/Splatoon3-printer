@@ -88,7 +88,7 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 			// Send blank step
 			need_blank -= 1;
 			memcpy(ReportData, &BLANK_REPORT, sizeof(USB_JoystickReport_t));
-			// ReportData->VendorSpec = 3;
+			ReportData->VendorSpec = 3;
 			return;
 		} else 
 		if (echoes_remaining > 0) {
@@ -147,9 +147,7 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 
 			// ReportData->VendorSpec = 5;
 
-			#if DO_BLANK
 			need_blank = BLANK_ECHOES;  // Blank for 1 button after this
-			#endif
 		}
 	}
 }

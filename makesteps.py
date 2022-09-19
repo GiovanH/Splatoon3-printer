@@ -24,6 +24,7 @@ JOYSTICK_HEX = "Joystick.hex"
 
 TIME_PER_STEP = 0.2  # This really is just about exactly right, according to time trials
 
+NO_FOLDING = False
 
 class Step(enum.Enum):
     NONE = (0x0, 0x08)
@@ -85,6 +86,8 @@ class PseudoStep(object):
 
 
 def foldSteps(step1, step2, label=None):
+    if NO_FOLDING:
+        return [step1, step2]
     if step1.value[0] != 0x0 and step2.value[0] != 0x0:
         # print(f"Can't fold {step1}, {step2}")
         return [step1, step2]
@@ -285,6 +288,11 @@ class Printer(object):
             elif xstep == Step.NONE:
                 new_steps_compressed.append(ystep)
 
+            if NO_FOLDING:
+                new_steps_compressed.append(xstep)
+                new_steps_compressed.append(ystep)
+                continue
+
             elif xstep == Step.HAT_LEFT:
                 if ystep == Step.HAT_UP:
                     new_steps_compressed.append(Step.HAT_UP_LEFT)
@@ -378,20 +386,20 @@ class Printer(object):
         ]
         (target_color, count) = collections.Counter(marks).most_common(1)[0]
 
-        if all(
-            self.sim.canvas[x][y] == target_color
-            for (x, y) in chunk
-        ):
-            return (False, count, target_color)
+        changes = [(x, y) for (x, y) in chunk if (self.sim.canvas[x][y] != target_color)]
+        changed_correctly = [(x, y) for (x, y) in changes if (source.canvas[x][y] == target_color)]
 
-        return (True, count, target_color)
+        # change_count = len(changes)
+        correct_change_count = len(changed_correctly)
+
+        return (any(changes), correct_change_count, target_color)
 
     def markStamp(self, target_x, target_y, source, stamp=Size.SMALL):
         new_steps = []
 
-        can_stamp, count, target_color = self.shouldStamp(target_x, target_y, source, stamp)
+        any_changes, correct_change_count, target_color = self.shouldStamp(target_x, target_y, source, stamp)
 
-        if not can_stamp:
+        if not any_changes:
             return new_steps
 
         move_to_steps = foldStepSeqs(
@@ -521,6 +529,46 @@ def genPixelsNearPointSquare(cx, cy, max_radius=400):
 #     pixels[x, y] = (i, i, 255)
 # image_canvas.save("gentest.png")
 
+def visualizeFootprint(x, y, source, stamp, target_color=True):
+    print("VISUALIZING", stamp, "at", (x, y))
+    chunk = source.rel_stamp_footprint(stamp, x, y)
+    margin = 6
+    xrange = range(
+        max([min(x for (x, y) in chunk) - margin, 0]),
+        min([max(x for (x, y) in chunk)+1+margin, source.w])
+    )
+    yrange = range(
+        max([min(y for (x, y) in chunk) - margin, 0]),
+        min([max(y for (x, y) in chunk)+1+margin, source.h])
+    )
+
+    def reprSquare(x, y):
+        if source.canvas[x][y]:
+            # Old was set
+            if (x, y) in chunk:
+                if target_color is True:
+                    return 'x'  # Brush will leave set
+                else:
+                    return 'O'  # Brush will erase
+            else:
+                return '.'  # Unchanged set
+
+        else:
+            # Old was empty
+            if (x, y) in chunk:
+                if target_color is True:
+                    return 'X'  # Brush will set
+                else:
+                    return 'o'  # Brush will leave empty
+            else:
+                return ' '  # Unchanged empty
+
+    for x in xrange:
+        for y in yrange:
+            print(reprSquare(x, y), end='')
+        print("|")
+    # os.abort()
+
 
 class ConnectedPrinter(NaivePrinter):
 
@@ -541,14 +589,17 @@ class ConnectedPrinter(NaivePrinter):
                 continue
             try:
                 chunk = self.sim.rel_stamp_footprint(stamp, x, y)
-                can_stamp, count, target_color = self.shouldStamp(x, y, source, stamp)
-                if can_stamp and (count > self.settings['threshhold'] * len(chunk)):
+                any_changes, correct_change_count, target_color = self.shouldStamp(x, y, source, stamp)
+                if any_changes and (correct_change_count > self.settings['threshhold'] * len(chunk)):
+                    # print(f"{(x, y, any_changes, correct_change_count, self.settings['threshhold'] * len(chunk), target_color)=}")
+                    # visualizeFootprint(x, y, self.sim, stamp, target_color=target_color)
                     return (x, y)
             except IndexError:
                 print("Out of bounds?", x, y)
                 print(f"{len(self.sim.canvas)=} {len(source.canvas)=}")
                 print(f"{len(self.sim.canvas[x])=} {len(source.canvas[x])=}")
                 raise
+        return (-1, -1)
 
     def drawImageCustom(self, source):
         new_steps = []
@@ -560,12 +611,10 @@ class ConnectedPrinter(NaivePrinter):
         # print(self.sim.canvas, source)
         stack = set()
         for stamp in self.settings["stamps"]:
+            # print("Brush", stamp)
             while True:  # use TypeError to break
-                try:
-                    (x, y) = self.closestTodoPixel(source, stamp=stamp)
-                    assert (x, y) not in stack, (x, y, stack)
-                except TypeError:
-                    # print("Out of todos")
+                (x, y) = self.closestTodoPixel(source, stamp=stamp)
+                if (x, y) == (-1, -1):
                     break
                 # print("Stamping", x, y, stamp)
                 new_steps += self.markStamp(x, y, source, stamp=stamp)
@@ -602,9 +651,9 @@ class MultiBrushPrinter(ConnectedPrinter):
             # print(x, y)
             for stamp in [Size.LARGE, Size.MED, Size.SMALL]:
                 chunk = self.sim.rel_stamp_footprint(stamp, x, y)
-                can_stamp, count, target_color = self.shouldStamp(x, y, source, stamp)
+                any_changes, correct_change_count, target_color = self.shouldStamp(x, y, source, stamp)
 
-                if can_stamp and count > self.settings['threshhold'] * len(chunk):
+                if any_changes and correct_change_count > self.settings['threshhold'] * len(chunk):
                     new_steps += self.markStamp(x, y, source, stamp=stamp)
                     if self.settings.get('gif_out'):
                         gif_frames.append(self.markedImage())
@@ -738,24 +787,24 @@ if args.gen:
             (ConnectedPrinter, [
                 (binstr,
                     {
-                        "threshhold": (0.8 if binstr[0] == "1" else 0.6),
+                        "threshhold": (0.9 if binstr[0] == "1" else 0.6),
                         "nearalgo": (genPixelsNearPoint if binstr[1] == "1" else genPixelsNearPointSquare),
-                        "stamps": [Size.SMALL] # TODO: doesn't work with large stamps? Size.LARGE, Size.MED,
+                        "stamps": [Size.LARGE, Size.MED, Size.SMALL]
                     },
                  )
                 for binstr in ["".join(seq) for seq in product("01", repeat=2)]
             ]),
-            # (MultiBrushPrinter, [
-            #     (binstr,
-            #         {
-            #             "horizontal": (binstr[0] == "1"), "vertical": (binstr[0] != "1"),
-            #             "threshhold": (0.9 if binstr[1] == "1" else 0.5),
-            #             "nearalgo": (genPixelsNearPoint if binstr[2] == "1" else genPixelsNearPointSquare),
-            #             "min_increment": ((3, 3) if binstr[3] == "1" else (7, 7))
-            #         },
-            #      )
-            #     for binstr in ["".join(seq) for seq in product("01", repeat=4)]
-            # ]),
+            (MultiBrushPrinter, [
+                (binstr,
+                    {
+                        "horizontal": (binstr[0] == "1"), "vertical": (binstr[0] != "1"),
+                        "threshhold": (0.9 if binstr[1] == "1" else 0.5),
+                        "nearalgo": (genPixelsNearPoint if binstr[2] == "1" else genPixelsNearPointSquare),
+                        "min_increment": ((3, 3) if binstr[3] == "1" else (7, 7))
+                    },
+                 )
+                for binstr in ["".join(seq) for seq in product("01", repeat=4)]
+            ]),
         ]:
             for settings_str, settings in settings_permutations:
                 printer = Printer_(pattern, settings=settings)
@@ -782,7 +831,12 @@ if args.gen:
             best_printer.copy().genGif(f"{Printer_.__name__} {settings_str}.gif")
 
     else:
-        saveSteps(NaivePrinter(pattern).toSteps())
+        print("Using default")
+        printer = MultiBrushPrinter(pattern)
+
+        saveSteps(printer.toSteps())
+        if args.gif:
+            printer.copy().genGif(f"ConnectedPrinter.gif")
 
 if args.make:
     if subprocess.run(["make"]):
