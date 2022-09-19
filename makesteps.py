@@ -805,6 +805,7 @@ pattern = Splat3Canvas(w, h).fromPattern(infile_image)
 if args.gen:
     if args.bogo:
         best_steps = None
+        best_step_len = None
         best_printer = None
         for (Printer_, settings_permutations) in [
             # (NaivePrinter, [
@@ -868,8 +869,9 @@ if args.gen:
                         f"({len(compressed)/27}%) "
                         f"(~{fmtTime(len(compressed) * TIME_PER_STEP)} runtime)")
 
-                    if best_steps is None or len(steps) < len(best_steps):
+                    if best_steps is None or len(compressed) < best_step_len:
                         best_steps = steps
+                        best_step_len = len(compressed)
                         best_printer = printer
                         print("BEST!")
                 except Exception:
