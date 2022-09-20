@@ -1,31 +1,19 @@
 #include "types.h"
 #include <string.h> // For memcpy
 
-#define ECHOES 12 // 30 FPS
-#define BLANK_ECHOES 12 // 30 FPS
-#define STEP_BLOCK_SIZE 3 // ints per step
+#define ECHOES 12 // 12 = 30 FPS
+#define BLANK_ECHOES 12 // 12 = 30 FPS
+#define STEP_BLOCK_SIZE 2 // ints per step
 
-//#define PRE SPLAT
 #define PRE 1
 #define WRAPAROUND 0
-//0: NONE
-//1: SPLAT
 
 static int sys_echoes_remaining = 0;
 static int echoes_remaining = 0;
 static uint8_t need_blank = 0;
 static int stepIndex = -1;
 
-
-// static int echoes = 0;
-// static int stepIndex = 0;
-
 static USB_JoystickReport_t last_report;
-
-// static uint8_t* pseudoL;
-// static uint8_t* pseudoR;
-// static uint8_t* pseudoH;
-// static uint8_t* pseudoB;
 
 USB_JoystickReport_t BLANK_REPORT = {
 	0,  // 16 buttons; see JoystickButtons_t for bit mapping
@@ -60,22 +48,22 @@ uint8_t prestep[] = {
  4, 8, 1,
  0 };
 
+static uint8_t* reportArray = prestep;
 #if PRE==1
-	static uint8_t* reportArray = prestep;
 	static int arrayMax = 5;
 #else
-	static uint8_t* reportArray = prestep;
 	static int arrayMax = 0;
 #endif
+
+uint8_t pseudoBH;
+uint8_t bData;
+uint8_t hData;
+uint8_t repData;
 
 //#include <stdio.h> // Just for debugging.
 
 // Prepare the next report for the host.
 void GetNextReport(USB_JoystickReport_t* const ReportData) {
-
-	// printf("[%u] 0x%x {%u, %u, %u, %u} | ",
-	// 	stepIndex, reportArray, bData, lData, rData, hData 
-	// );
 
 	if (sys_echoes_remaining > 0) {
 		// Echo last for polling purposes
@@ -127,13 +115,24 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 			}
 
 			// Send next report
-			uint8_t bData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+0];
-			uint8_t hData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+1];
-			uint8_t repData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+2];
+
+			// uint8_t bData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+0];
+			// uint8_t hData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+1];
+
+			pseudoBH = reportArray[(STEP_BLOCK_SIZE*stepIndex)+0];
+			bData = pseudoBH && 0x0f;
+			hData = pseudoBH && 0xf0;
+
+			// uint8_t repData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+2];
+			repData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+1];
 
 			ReportData->HAT = hData;
-			if (bData == 0x08) {
+			if (bData == 0x08) { // Translate X to Lclick
 				ReportData->Button = 0x400;
+			} else if (bData == 0x06) { // Translate A+B to L
+				ReportData->Button = 0x10;
+			} else if (bData == 0x07) { // Translate A+B+Y to R
+				ReportData->Button = 0x20;
 			} else {
 				ReportData->Button = bData;
 			}
