@@ -17,7 +17,7 @@ static USB_JoystickReport_t last_report;
 
 USB_JoystickReport_t BLANK_REPORT = {
 	0,  // 16 buttons; see JoystickButtons_t for bit mapping
-	8,  // HAT switch; one nibble w/ unused nibble
+	HAT_CENTER,  // HAT switch; one nibble w/ unused nibble
 	STICK_CENTER,  // Left  Stick X
 	STICK_CENTER,  // Left  Stick Y
 	STICK_CENTER,  // Right Stick X
@@ -39,13 +39,11 @@ State_t state = SYNC_CONTROLLER;
 #include "steps.c"
 
 uint8_t prestep[] = {
-    0, 8, 4,  //Wait
-    20, 8, 1, //Triggers
-    30, 8, 4, //Triggers
-    0, 8, 4, 
-    // 4, 8, 4,  //Continue
-    // 0, 8, 4, 
- 4, 8, 1,
+    0, 4,  //Wait
+    SWITCH_L, 1, //Triggers
+    SWITCH_L | SWITCH_R, 3, //Triggers
+    0, 2,
+ 	SWITCH_A, 1,
  0 };
 
 static uint8_t* reportArray = prestep;
@@ -56,7 +54,7 @@ static uint8_t* reportArray = prestep;
 #endif
 
 uint8_t pseudoBH;
-uint8_t bData;
+uint16_t bData;
 uint8_t hData;
 uint8_t repData;
 
@@ -78,19 +76,19 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 			memcpy(ReportData, &BLANK_REPORT, sizeof(USB_JoystickReport_t));
 			ReportData->VendorSpec = 3;
 			return;
-		} else 
+		} else
 		if (echoes_remaining > 0) {
-			// Echo last as a repeated input
-			echoes_remaining -= 1;
+			// Echo last planned button press as a repeated input
+			// ReportData->VendorSpec = 2;
 			memcpy(ReportData, &last_report, sizeof(USB_JoystickReport_t));
-			// ReportData->VendorSpec = 1;
+			echoes_remaining -= 1;
 			sys_echoes_remaining = ECHOES;
 			need_blank = BLANK_ECHOES;  // Blank for 1 button after this
 			return;
 		} else {
-			memcpy(ReportData, &BLANK_REPORT, sizeof(USB_JoystickReport_t));
-			// ReportData->VendorSpec = 2;
 			// Do next step
+			// ReportData->VendorSpec = 4;
+			memcpy(ReportData, &BLANK_REPORT, sizeof(USB_JoystickReport_t));
 			stepIndex += 1;
 			// Wraparound
 			if (stepIndex > arrayMax)
@@ -100,6 +98,7 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 					reportArray = step;
 					arrayMax = (numsteps - 1);
 					stepIndex = 0;
+					// ReportData->VendorSpec = 10;
 				} else if (WRAPAROUND) {
 					// Otherwise, if wraparound is set, go back to step #1 of the main report array.
 					stepIndex = 0;
@@ -115,28 +114,33 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 			}
 
 			// Send next report
+			// ReportData->VendorSpec = 5;
 
-			// uint8_t bData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+0];
-			// uint8_t hData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+1];
 
-			pseudoBH = reportArray[(STEP_BLOCK_SIZE*stepIndex)+0];
-			bData = pseudoBH && 0x0f;
-			hData = pseudoBH && 0xf0;
+			if (reportArray == prestep) {
+				bData = prestep[(STEP_BLOCK_SIZE*stepIndex)+0];
+				repData = prestep[(STEP_BLOCK_SIZE*stepIndex)+1];
+				hData = 0x08;
+				// ReportData->VendorSpec = 30 + stepIndex;
 
-			// uint8_t repData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+2];
-			repData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+1];
+			} else {
+				pseudoBH = reportArray[(STEP_BLOCK_SIZE*stepIndex)+0];
+				bData = (pseudoBH & 0xf0) >> 4;
+				hData = (pseudoBH & 0x0f);
+
+				repData = reportArray[(STEP_BLOCK_SIZE*stepIndex)+1];
+
+				if (bData == 0x08) { // Translate X to Lclick
+					bData = SWITCH_LCLICK;
+				} else if (bData == 0x06) { // Translate A+B to L
+					bData = SWITCH_L;
+				} else if (bData == 0x07) { // Translate A+B+Y to R
+					bData = SWITCH_R;
+				}
+			}
 
 			ReportData->HAT = hData;
-			if (bData == 0x08) { // Translate X to Lclick
-				ReportData->Button = 0x400;
-			} else if (bData == 0x06) { // Translate A+B to L
-				ReportData->Button = 0x10;
-			} else if (bData == 0x07) { // Translate A+B+Y to R
-				ReportData->Button = 0x20;
-			} else {
-				ReportData->Button = bData;
-			}
-			// ReportData->VendorSpec = 2;
+			ReportData->Button = bData;
 
 			// Copy the ReportData to last_report
 			memcpy(&last_report, ReportData, sizeof(USB_JoystickReport_t));

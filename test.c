@@ -11,7 +11,7 @@ int main(void) {
 		USB_JoystickReport_t JoystickInputData;
 		GetNextReport(&JoystickInputData);
 		//if (JoystickInputData.LX != 128) {
-			printf("Buttons: %u, Hat: %u, Sticks: (%u, %u), (%u, %u), Vendor: %u\n",
+			printf("Buttons: %02x, Hat: %02x, Sticks: (%u, %u), (%u, %u), Vendor: %u\n",
 				JoystickInputData.Button,
 				JoystickInputData.HAT,
 				JoystickInputData.LX,
