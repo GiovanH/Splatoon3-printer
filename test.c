@@ -7,8 +7,8 @@
 int v = 0;
 
 int main(void) {
+	USB_JoystickReport_t JoystickInputData;
 	for (uint i = 0; v != 88; i++) {
-		USB_JoystickReport_t JoystickInputData;
 		GetNextReport(&JoystickInputData);
 		//if (JoystickInputData.LX != 128) {
 			printf("Buttons: %02x, Hat: %02x, Sticks: (%u, %u), (%u, %u), Vendor: %u\n",

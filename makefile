@@ -22,7 +22,7 @@ MYSRC 		 = nextreport.c $(TARGET).c Descriptors.c
 SRC          = $(MYSRC) $(LUFA_SRC_USB)
 TESTSRC		 = nextreport.c test.c
 LUFA_PATH    = ../LUFA/LUFA
-CC_FLAGS     = -DUSE_LUFA_CONFIG_HEADER -IConfig/
+CC_FLAGS     = -Wall -DUSE_LUFA_CONFIG_HEADER -IConfig/
 LD_FLAGS     =
 
 # Default target
