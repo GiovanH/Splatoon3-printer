@@ -3,10 +3,10 @@
 
 // How many times does the report still need to repeat for the console
 // to register it? Used by sys_echoes_remaining
-#define SYS_ECHOES 12 // 12 = 30 FPS
+#define SYS_ECHOES 4
 // How many frames do we need to release for entirely before doing anything else?
 // Used by need_blank
-#define BLANK_ECHOES 16 // 12 = 30 FPS
+#define BLANK_ECHOES 4
 
 #define STEP_BLOCK_SIZE 2 // ints per step in the data structure
 
@@ -23,13 +23,13 @@ static int stepIndex;
 // How big is it?
 static int arrayMax;
 
-void initReport(int array_max) {
+void initReport(int array_len) {
 	sys_echoes_remaining = 0;
 	echoes_remaining = 0;
 	need_blank = 0;
 	stepIndex = -1;
 
-	arrayMax = array_max;
+	arrayMax = array_len - 1;
 	return;
 }
 
@@ -49,12 +49,15 @@ USB_JoystickReport_t BLANK_REPORT = {
 #include "steps.c"
 
 uint8_t prestep[] = {
-    0, 4,  //Wait
+    0, 6,  //Wait
     SWITCH_L | SWITCH_R, 1, //Triggers
-    0, 2,
+    0, 3,
  	SWITCH_A, 1,
- 0 };
+    0, 16,  //Wait
+    0, 16,  //Wait (unused, old overflow catcher)
+};
 
+#define PRESTEP_LEN 5 // 12 = 30 FPS
 
 static uint8_t* reportArray = NULL;
 
@@ -70,11 +73,11 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 	if (reportArray == NULL) {
 		#if PRE==1
 			reportArray = prestep;
-			initReport(4);
+			initReport(PRESTEP_LEN);
 			// static int arrayMax = 4;
 		#else
 			reportArray = step;
-			initReport(numsteps - 1);
+			initReport(numsteps);
 		#endif
 	}
 
@@ -88,7 +91,9 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 	if (need_blank) {
 		// Send blank step
 		need_blank -= 1;
+		// uint16_t prev_a_button = ReportData->Button & SWITCH_A;
 		memcpy(ReportData, &BLANK_REPORT, sizeof(USB_JoystickReport_t));
+		// ReportData->Button = prev_a_button;
 		return;
 	}
 
@@ -111,7 +116,7 @@ void GetNextReport(USB_JoystickReport_t* const ReportData) {
 		if (reportArray == prestep) {
 			// If we're still in the prestep, just switch to the main report array.
 			reportArray = step;
-			initReport(numsteps - 1);
+			initReport(numsteps);
 			return;
 		} else if (WRAPAROUND) {
 			// Otherwise, if wraparound is set, go back to step #1 of the main report array.

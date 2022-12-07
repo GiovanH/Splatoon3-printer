@@ -2,20 +2,17 @@
 #include "types.h"
 #include "nextreport.h"
 
+
 // Main entry point.
 int main(void) {
-	// We'll start by performing hardware and peripheral setup.
 	SetupHardware();
-	// We'll then enable global interrupts for our use.
 	GlobalInterruptEnable();
-	// Once that's done, we'll enter an infinite loop.
-	for (;;)
-	{
-		// We need to run our task to process and deliver data for our IN and OUT endpoints.
+
+    while (true) {
 		HID_Task();
 		// We also need to run the main USB management task.
 		USB_USBTask();
-	}
+    }
 }
 
 // Configures hardware and peripherals, such as the USB peripherals.
@@ -28,16 +25,17 @@ void SetupHardware(void) {
 	clock_prescale_set(clock_div_1);
 	// We can then initialize our hardware and peripherals, including the USB stack.
 
-	// 	#ifdef ALERT_WHEN_DONE
-	// 	// Both PORTD and PORTB will be used for the optional LED flashing and buzzer.
-	// 	#warning LED and Buzzer functionality enabled. All pins on both PORTB and \
-	// PORTD will toggle when printing is done.
-	// 	DDRD  = 0xFF; //Teensy uses PORTD
-	// 	PORTD =  0x0;
-	//                   //We'll just flash all pins on both ports since the UNO R3
-	// 	DDRB  = 0xFF; //uses PORTB. Micro can use either or, but both give us 2 LEDs
-	// 	PORTB =  0x0; //The ATmega328P on the UNO will be resetting, so unplug it?
-	// 	#endif
+	#ifdef ALERT_WHEN_DONE
+	// Both PORTD and PORTB will be used for the optional LED flashing and buzzer.
+	#warning LED and Buzzer functionality enabled. All pins on both PORTB and \
+PORTD will toggle when printing is done.
+	//DDRD  = 0xFF; //Teensy uses PORTD
+	DDRD  = 0xFE; //RN: Set D0 to input(0)
+	PORTD =  0x01;
+                  //We'll just flash all pins on both ports since the UNO R3
+	DDRB  = 0xFF; //uses PORTB. Micro can use either or, but both give us 2 LEDs
+	PORTB =  0x0; //The ATmega328P on the UNO will be resetting, so unplug it?
+	#endif
 
 	// The USB stack should be initialized last.
 	USB_Init();

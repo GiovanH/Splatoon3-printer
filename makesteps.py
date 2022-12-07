@@ -15,6 +15,20 @@ import subprocess
 from itertools import product
 from itertools import zip_longest
 
+import traceback
+
+try:
+    # raise ImportError("Disabling threads")
+    from parallel_threads import do_work_helper
+except ImportError:
+    traceback.print_exc()
+
+    def do_work_helper(workfn, inputs, max_threads=8):
+        for i in inputs:
+            # print(i)
+            workfn(*i)
+
+# TODO: Pattern that first draws the solid blocks, then erases any extras needed
 
 TEENSY_MCU = "AT90USB1286"
 JOYSTICK_HEX = "Joystick.hex"
@@ -27,7 +41,8 @@ MAX_COMPRESSED_SIZE = 4000 # Reject plans with more than this many steps after c
 # Boxes
 # Fold more steps
 
-TIME_PER_STEP = 0.2  # This really is just about exactly right, according to time trials
+NUM_ECHOES = 5
+TIME_PER_STEP = (1/120) * (1 + NUM_ECHOES) * 2 # 120hz, 2 echoes, one blank after each step
 
 NO_FOLDING = False
 
@@ -96,14 +111,18 @@ class PseudoStep(object):
 def foldSteps(step1, step2, label=None):
     if NO_FOLDING:
         return [step1, step2]
-    if step1.value[0] != 0x0 and step2.value[0] != 0x0:
-        # print(f"Can't fold {step1}, {step2}")
+    if step1.value[0] != Step.NONE.value[0] and step2.value[0] != Step.NONE.value[0]:
+        print(f"Can't fold buttons {step1}, {step2}")
         return [step1, step2]
     if step1.value[0] == Step.LR.value[0] or step2.value[0] == Step.LR.value[0]:
-        # print(f"Can't fold {step1}, {step2}")
+        print(f"Can't fold LR {step1}, {step2}")
         return [step1, step2]
-    if step1.value[1] != 0x8 and step2.value[1] != 0x8:
-        # print(f"Can't fold {step1}, {step2}")
+    if step1.value[1] != Step.NONE.value[1] and step2.value[1] != Step.NONE.value[1]:
+        print(f"Can't fold d-pad {step1}, {step2}")
+        # different d-pad movements
+        return [step1, step2]
+    if step1.value[0] == Step.LCLICK.value[0] and step2.value[0] == Step.LCLICK.value[0]:
+        print(f"Can't fold LCLICK {step1}, {step2}")
         return [step1, step2]
     else:
         return [PseudoStep(step1).plus(step2)]
@@ -435,8 +454,9 @@ class Printer(object):
         for (x, y) in self.sim.rel_stamp_footprint(stamp, self.x, self.y):
             self.sim.canvas[x][y] = target_color
 
-        last_step = new_steps.pop()
-        new_steps += foldSteps(last_step, Step.A if target_color else Step.B)  # Safe
+        if len(new_steps) > 0:
+            last_step = new_steps.pop()
+            new_steps += foldSteps(last_step, Step.A if target_color else Step.B)  # Safe
 
         return new_steps
 
@@ -504,8 +524,8 @@ class NaivePrinter(Printer):
             new_steps += next_steps
             if next_steps:
                 if self.settings.get('gif_out'):
-                    # if stamp != Size.SMALL or len(new_steps) % 16 == 0:
-                    self.gif_frames.append(self.markedImage())
+                    if len(new_steps) % 6 == 0:
+                        self.gif_frames.append(self.markedImage())
         return new_steps
 
 
@@ -551,7 +571,7 @@ def genPixelsNearPointSquare(cx, cy, max_radius=440):
         # TODO: sometimes yields duplicates
         # print(radius)
         for length in range(-radius, radius + 1):
-            for side in [radius, -radius]:
+            for side in [-radius, radius]:
                 yield (cx + side, cy + length)  # left and right edges
                 yield (cx + length, cy + side)  # top and bottom edges
         radius += 1
@@ -709,8 +729,8 @@ class ConnectedPrinter(NaivePrinter):
                 # print("Stamping", x, y, stamp)
                 new_steps += self.markStamp(x, y, source, stamp=stamp)
                 if self.settings.get('gif_out'):
-                    # if stamp != Size.SMALL or len(new_steps) % 16 == 0:
-                    self.gif_frames.append(self.markedImage())
+                    if stamp != Size.SMALL or len(new_steps) % 6 == 0:
+                        self.gif_frames.append(self.markedImage())
 
         new_steps += super().drawImageCustom(source, small=True)
         return new_steps
@@ -736,8 +756,8 @@ class ConnectedPrinter2(ConnectedPrinter):
 
                 new_steps += self.markStamp(x, y, source, stamp=stamp)
                 if self.settings.get('gif_out'):
-                    # if stamp != Size.SMALL or len(new_steps) % 16 == 0:
-                    self.gif_frames.append(self.markedImage())
+                    if stamp != Size.SMALL or len(new_steps) % 6 == 0:
+                        self.gif_frames.append(self.markedImage())
 
         new_steps += super().drawImageCustom(source, small=True)
         return new_steps
@@ -775,6 +795,50 @@ class MultiBrushPrinter(NaivePrinter):
 
         new_steps += super().drawImageCustom(source, small=True)
 
+        return new_steps
+
+
+class InkErasePrinter(ConnectedPrinter):
+
+    def drawImageCustom(self, source, small=False):
+        new_steps = []
+
+        stamps = [Size.SMALL] if small else self.settings["stamps"]
+
+        # Find a todo pixel
+        # Mark todo pixel
+        # Find nearest todo pixel
+        # print(self.sim.canvas, source)
+        for should_ink_fn in [lambda c: c is True, lambda c: True]:
+            for stamp in stamps:
+                # last_coords = []
+                # print("Drawing connected spots with", stamp)
+                untilExhausted = self.settings['untilExhaustedMax']
+                while untilExhausted > 0:  # use TypeError to break
+                    (x, y) = self.closestTodoPixel(source, stamp=stamp)
+                    # last_coords = last_coords[:20] + [(x, y)]
+                    if (x, y) == (None, None):
+                        # print("Stamp exhausted", stamp)
+                        # print(last_coords)
+                        untilExhausted -= 1
+                        # Try to find another shape somewhere
+                        (x, y) = self.closestTodoPixel(source, stamp=stamp, anywhere=True)
+                        # last_coords = last_coords[:20] + [(x, y)]
+                        if (x, y) == (None, None):
+                            untilExhausted = 0
+                            break
+                        # else:
+                        #     print(f"Exhausted radius from {(self.x, self.y)} but found new todo at {(x, y)}")
+                    # print("Stamping", x, y, stamp)
+
+                    any_changes, correct_change_count, target_color = self.shouldStamp(x, y, source, stamp)
+                    if should_ink_fn(target_color):
+                        new_steps += self.markStamp(x, y, source, stamp=stamp)
+                        if self.settings.get('gif_out'):
+                            if stamp != Size.SMALL or len(new_steps) % 6 == 0:
+                                self.gif_frames.append(self.markedImage())
+
+        new_steps += super().drawImageCustom(source, small=True)
         return new_steps
 
 class SizeLayerPrinter(NaivePrinter):
@@ -854,9 +918,10 @@ def fmtTime(seconds):
 parser = argparse.ArgumentParser()
 parser.add_argument("infile", help="Input pattern file")
 add_bool_arg(parser, "dump", default=True, help="Save pattern")
-add_bool_arg(parser, "gen", default=True, help="Generate steps file")
+add_bool_arg(parser, "gen", default=True, help="Perform any calculation logic (false w/ --make to just make)")
 add_bool_arg(parser, "bogo", default=True, help="Find fastest solution")
 add_bool_arg(parser, "gif", default=True, help="Render gif of process")
+add_bool_arg(parser, "savesteps", default=True, help="Save output c file")
 add_bool_arg(parser, "make", default=False, help="Automatically run make after completion")
 args = parser.parse_args()
 
@@ -889,6 +954,19 @@ all_printer_permutations = [
          )
         for binstr in ["".join(seq) for seq in product("01", repeat=4)]
     ]),
+    ([InkErasePrinter], [
+        (binstr,
+            {
+                # "horizontal": (binstr[0] == "1"), "vertical": (binstr[0] != "1"), # Horizontal?
+                # "threshhold": (0.8 if binstr[1] == "1" else 0.51), # HighThreshhold?
+                # # "nearalgo": (genPixelsNearPoint if binstr[2] == "1" else genPixelsNearPointSquare), # DiamondAlgo?
+                # # "min_increment": ((2, 2) if binstr[3] == "1" else (7, 7)), # SmallMinIncrement?
+                # # MedOnly?
+                # "stamps": ([Size.MED, Size.SMALL] if binstr[2] == "1" else [Size.LARGE, Size.MED, Size.SMALL])
+            },
+         )
+        for binstr in ["0"]  # ["".join(seq) for seq in product("01", repeat=3)]
+    ]),
     ([SizeLayerPrinterC], [
         (binstr,
             {
@@ -897,10 +975,10 @@ all_printer_permutations = [
                 # "nearbyRadius": (30 if binstr[2] == "1" else 440), # Smaller radius?
                 # "min_increment_override": ((2, 2) if binstr[2] == "1" else None), # SmallMinIncrement?
                 # MedOnly?
-                "stamps": ([Size.MED, Size.SMALL] if binstr[3] == "1" else [Size.LARGE, Size.MED, Size.SMALL])
+                "stamps": ([Size.MED, Size.SMALL] if binstr[2] == "1" else [Size.LARGE, Size.MED, Size.SMALL])
             },
          )
-        for binstr in ["".join(seq) for seq in product("01", repeat=4)]
+        for binstr in ["".join(seq) for seq in product("01", repeat=3)]
     ]),
     ([MultiBrushPrinterC], [
         (binstr,
@@ -920,31 +998,42 @@ all_printer_permutations = [
 if args.gen:
     if args.bogo:
         results = {}
-        for (Printers_, settings_permutations) in all_printer_permutations:
-            for Printer_ in Printers_:
-                results[Printer_] = {}
-            for Printer_, (settings_binstr, settings) in itertools.product(Printers_, settings_permutations):
-                # for settings_binstr, settings in settings_permutations:
-                printer = Printer_(pattern, settings=settings)
-                try:
-                    steps = printer.toSteps()
-                    compressed = [*compressSteps(steps)]
-                    print(
-                        f"{Printer_} ({settings_binstr}) printed pattern in {len(steps)}/{len(compressed)} steps "
-                        f"({(100*len(compressed)/MAX_COMPRESSED_SIZE if MAX_COMPRESSED_SIZE else 0):.2f}%) "
-                        f"(~{fmtTime(len(steps) * TIME_PER_STEP)} runtime)")
 
-                    results[Printer_][settings_binstr] = {
-                        "printer": printer,
-                        "steps": steps,
-                        "compressed": compressed
-                    }
+        def generateResult(Printer_, settings_binstr, settings):
+            # for settings_binstr, settings in settings_permutations:
+            printer = Printer_(pattern, settings=settings)
+            try:
+                steps = printer.toSteps()
+                compressed = [*compressSteps(steps)]
+                print(
+                    f"{Printer_} ({settings_binstr}) printed pattern in {len(steps)}/{len(compressed)} steps "
+                    f"({(100*len(compressed)/MAX_COMPRESSED_SIZE if MAX_COMPRESSED_SIZE else 0):.2f}%) "
+                    f"(~{fmtTime(len(steps) * TIME_PER_STEP)} runtime)")
 
-                except Exception:
-                    print(f"{Printer_} ({settings_binstr} {settings}) failed!")
+                results[Printer_][settings_binstr] = {
+                    "printer": printer,
+                    "steps": steps,
+                    "compressed": compressed
+                }
 
-                    import traceback
-                    traceback.print_exc()
+            except Exception:
+                print(f"{Printer_} ({settings_binstr} {settings}) failed!")
+
+                traceback.print_exc()
+
+        try:
+            for (Printers_, settings_permutations) in all_printer_permutations:
+                for Printer_ in Printers_:
+                    results[Printer_] = {}
+                do_work_helper(generateResult, [
+                    (Printer_, settings_binstr, settings)
+                    for Printer_, (settings_binstr, settings)
+                    in itertools.product(Printers_, settings_permutations)
+                ])
+                # for Printer_, (settings_binstr, settings) in itertools.product(Printers_, settings_permutations):
+                #     generateResult(Printer_, settings_binstr, settings)
+        except KeyboardInterrupt:
+            pass # continue with results collected
 
         pprint.pprint({
             name: {
@@ -962,6 +1051,7 @@ if args.gen:
         best_metric = None
         best_steps = None
         best_settings_binstr = None
+        best_compressed = None
         for cls in results:
             for settings_binstr in results[cls]:
                 len_compressed = len(results[cls][settings_binstr]['compressed'])
@@ -974,15 +1064,16 @@ if args.gen:
                     best_settings_binstr = settings_binstr
                     best_printer = results[cls][settings_binstr]['printer']
                     best_steps = results[cls][settings_binstr]['steps']
+                    best_compressed = len_compressed
 
         # Save output
         print(best_printer)
         print(best_printer.settings)
         print(
-            f"{best_printer} ({best_settings_binstr}) printed pattern in {len(best_steps)} steps "
-            f"(~{fmtTime(len(compressed) * TIME_PER_STEP)} runtime)")
+            f"{best_printer} ({best_settings_binstr}) printed pattern in {len(best_steps)} steps")
 
-        saveSteps(best_steps)
+        if args.savesteps:
+            saveSteps(best_steps)
         if args.gif:
             gifname = f"{best_printer.__class__.__name__} {best_settings_binstr}.gif"
             print("Writing", gifname)
@@ -990,14 +1081,35 @@ if args.gen:
             print("Done.")
 
     else:
-        print("Using default")
-        printer = ConnectedPrinter(pattern)
+        best_printer = ConnectedPrinter(
+            pattern,
+            {
+                "threshhold": 0.8, # HighThreshhold?
+                # "nearalgo": (genPixelsNearPoint if binstr[1] == "1" else genPixelsNearPointSquare), # Diamond?
+                "keepGoingExtent": 0, # KeepGoing?
+                "nearbyRadius": 440, # Smaller radius?
+                # "untilExhaustedMax": (20 if binstr[3] == "1" else 5), # Smaller radius?
+                # MedOnly?
+                "stamps": [Size.LARGE, Size.MED, Size.SMALL]
+            }
+        )
+        # best_printer = InkErasePrinter(pattern)
+        print(f"Using default {best_printer}")
+        best_steps = best_printer.toSteps()
 
-        saveSteps(printer.toSteps())
+        print(f"{best_printer} (default) printed pattern in {len(best_steps)} steps ")
+
+        if args.savesteps:
+            saveSteps(best_steps)
         if args.gif:
-            printer.copy().genGif(f"{printer.__class__.__name__} Default.gif")
+            gifname = f"{best_printer.__class__.__name__} Default.gif"
+            print("Writing", gifname)
+            best_printer.copy().genGif(gifname)
+            print("Done.")
 
 if args.make:
     if subprocess.run(["make"]):
+        proc = ["../teensy_loader_cli", "--mcu", TEENSY_MCU, "-w", JOYSTICK_HEX]
+        print(proc)
         print(f"Waiting for {TEENSY_MCU}...")
-        subprocess.run(["../teensy_loader_cli", "--mcu", TEENSY_MCU, "-w", JOYSTICK_HEX])
+        subprocess.run(proc)

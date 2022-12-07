@@ -54,6 +54,8 @@ include $(LUFA_PATH)/Build/lufa_atprogram.mk
 with-alert: all
 with-alert: CC_FLAGS += -DALERT_WHEN_DONE
 
+Joystick.hex: $(SRC)
+
 install: $(TARGET).hex
 	../teensy_loader_cli --mcu $(MCU) -w $(TARGET).hex
 
